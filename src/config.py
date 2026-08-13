@@ -1,4 +1,5 @@
 """NewsPulse 配置模块（demo 版）。密钥不进本文件。"""
+import os
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -7,6 +8,14 @@ REPORTS_DIR = BASE_DIR / "reports"
 LOGS_DIR = BASE_DIR / "logs"
 for d in (DATA_DIR, REPORTS_DIR, LOGS_DIR):
     d.mkdir(parents=True, exist_ok=True)
+
+# 邮件推送（复用 send_email.py，密钥在其 config.json，不进 git / 不硬编码）
+EMAIL_SCRIPT = os.environ.get(
+    "NEWSPULSE_EMAIL_SCRIPT",
+    r"C:\Users\Delia\.cc-switch\skills\email-notification\scripts\send_email.py")
+EMAIL_CONFIG = os.environ.get("NEWSPULSE_EMAIL_CONFIG", "")  # 服务器部署时指定 secrets/email_config.json
+EMAIL_TO = os.environ.get("NEWSPULSE_EMAIL_TO", "228396705@qq.com")
+EMAIL_CC = os.environ.get("NEWSPULSE_EMAIL_CC", "deliaaxi6@gmail.com")
 
 STOCKS = [
     {"code": "600519.XSHG", "symbol": "600519", "name": "贵州茅台"},

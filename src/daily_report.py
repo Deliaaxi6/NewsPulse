@@ -1,11 +1,13 @@
-"""⑤ HTML 报告：情绪总览/决策/持仓/成交 → reports/report_{date}.html。"""
+"""⑤ HTML 报告：情绪总览/决策/持仓/成交 → reports/report_{date}.html，生成后邮件推送。"""
+import subprocess
 import sys
 import datetime as dt
 from pathlib import Path
 
 import pandas as pd
 
-from config import DATA_DIR, REPORTS_DIR, STOCKS
+from config import (DATA_DIR, REPORTS_DIR, STOCKS,
+                    EMAIL_SCRIPT, EMAIL_CONFIG, EMAIL_TO, EMAIL_CC)
 
 PAGE = """<!DOCTYPE html>
 <html lang="zh"><head><meta charset="utf-8"><title>NewsPulse 日报 {date}</title>
@@ -71,6 +73,33 @@ def prediction_rows_html():
     return rows
 
 
+def send_report_email(date_str, report_path: Path) -> bool:
+    """报告生成后推送邮件（复用 send_email.py）。失败仅告警，不中断主流程。"""
+    script = Path(EMAIL_SCRIPT)
+    if not script.exists():
+        print(f"[warn] 邮件脚本不存在 {script}，跳过推送（本地开发可忽略）")
+        return False
+    cmd = [sys.executable, str(script),
+           "--to", EMAIL_TO, "--cc", EMAIL_CC,
+           "--event", "idle",
+           "--project", "NewsPulse",
+           "--message", f"NewsPulse 日报 {date_str} 已生成，请查收附件",
+           "--subject", f"NewsPulse 日报 {date_str}",
+           "--attachment", str(report_path),
+           "--foreground"]
+    if EMAIL_CONFIG:
+        cmd += ["--config", EMAIL_CONFIG]
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        if r.returncode == 0:
+            print("[ok] 日报邮件已推送")
+            return True
+        print(f"[warn] 邮件推送失败: {r.stderr.strip()[:200]}")
+    except Exception as e:
+        print(f"[warn] 邮件推送异常: {e}")
+    return False
+
+
 def main(date_str=None):
     date_str = date_str or dt.date.today().isoformat()
     senti = pd.read_csv(DATA_DIR / "daily_sentiment.csv", encoding="utf-8-sig")
@@ -110,6 +139,7 @@ def main(date_str=None):
     out = REPORTS_DIR / f"report_{date_str}.html"
     out.write_text(html, encoding="utf-8")
     print(f"[ok] 报告 → {out}")
+    send_report_email(date_str, out)
 
 
 if __name__ == "__main__":
