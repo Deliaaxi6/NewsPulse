@@ -33,6 +33,14 @@
 
 ## 会话日志（从设计阶段开始记录）
 
+### 2026-08-13 — G8 技术指标 + K线形态 完成
+- ✅ src/indicators.py：MA/MACD/KDJ/RSI/BOLL 五指标（纯 pandas，无 talib）；analyze/describe；数据不足宁缺毋假
+- ✅ src/kline_patterns.py：8 种高频形态（早晨之星/黄昏之星/锤头/上吊/长阳吞没/十字星/射击之星/乌云盖顶）
+- ✅ src/decision.py 集成：辅助因子（均线多头共振 confidence+0.1 + reason 技术摘要），不改买卖主规则/杠杆/熔断
+- ✅ 修复 RSI 除零缺陷（纯上涨应=100）
+- ✅ 测试 16/16 新增，回归 48/48 全绿；run_all 正常；回测结果与实施前一致（无回归）
+- 📌 下一步：邮件推送 / G6 资金面 / 部署
+
 ### 2026-08-13 — Phase 1 收尾（git + tests + 卫生）
 - ✅ git init + .gitignore（排除 data/reports/logs/__pycache__/secrets.json），24 文件首次暂存
 - ✅ tests/ 正式测试目录（此前临时脚本在系统临时目录，已固化）：

@@ -7,6 +7,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import test_sentiment
 import test_trading
 import test_circuit
+import test_indicators
+import test_report_email
 
 
 def main() -> int:
@@ -14,6 +16,8 @@ def main() -> int:
         ("sentiment", test_sentiment.main),
         ("trading", test_trading.main),
         ("circuit", test_circuit.main),
+        ("indicators", test_indicators.main),
+        ("email", test_report_email.main),
     ]
     total_fail = 0
     for name, fn in suites:

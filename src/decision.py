@@ -1,4 +1,6 @@
-"""③ 决策：情绪分+个股当日涨跌幅 → 买卖信号+杠杆档位。"""
+"""③ 决策：情绪分+个股当日涨跌幅 → 买卖信号+杠杆档位。
+G8 辅助因子：技术指标/形态仅微调 confidence 与 reason，不改变买卖主规则。
+"""
 import sys
 import datetime as dt
 
@@ -7,6 +9,8 @@ import pandas as pd
 from config import (DATA_DIR, STOCKS, SENTI_BUY_THRESHOLD, SENTI_SELL_THRESHOLD,
                     LEVERAGE_HIGH, LEVERAGE_MID, LEVERAGE_LOW, SENTI_SCORE_CUT)
 import circuit_breaker as cb
+import indicators
+import kline_patterns
 
 
 def fetch_spot():
@@ -38,6 +42,18 @@ def fetch_spot_sina():
     return result
 
 
+def tech_factor(sym: str) -> dict:
+    """G8 辅助因子：返回 (技术摘要, 形态列表)。失败返回空值，不阻断决策。"""
+    try:
+        df = indicators.fetch_daily(sym)
+        m = indicators.analyze(df)
+        patterns = kline_patterns.detect(df)
+        return m, patterns
+    except Exception as e:
+        print(f"[warn] {sym} 技术因子失败: {e}")
+        return {"ok": False, "reason": "技术因子不可用"}, []
+
+
 def decide(score: float, spot: dict) -> list:
     rows = []
     for s in STOCKS:
@@ -49,11 +65,18 @@ def decide(score: float, spot: dict) -> list:
                          "reason": "行情unavailable，数据缺失宁缺毋假，跳过决策"})
             continue
         change = spot.get(sym, 0.0)
+        m, patterns = tech_factor(sym)
+        tech_note = indicators.describe(m) if m.get("ok") else (m.get("reason") or "技术面跳过")
+        if patterns:
+            tech_note += " | 形态: " + "/".join(patterns)
         if score > SENTI_BUY_THRESHOLD and change > 0:
             signal = "buy"
             predict = "up"
             confidence = min(1.0, abs(score) + abs(change) / 10)
             reason = f"情绪{score:.2f}>0.3 且 {s['name']}涨{change:.2f}%"
+            if m.get("ok") and m.get("ma_bullish"):
+                confidence = min(1.0, confidence + 0.1)  # 均线多头共振小幅加成
+                reason += "（均线多头共振）"
         elif score < SENTI_SELL_THRESHOLD:
             signal = "sell"
             predict = "down"
@@ -75,6 +98,7 @@ def decide(score: float, spot: dict) -> list:
             signal = "hold"
             predict = "flat"
             reason = f"熔断冷却中({cb.status_text()})，暂停交易"
+        reason += f" | {tech_note}"
         rows.append({"date": dt.date.today().isoformat(), "stock": sym,
                      "signal": signal, "leverage": leverage,
                      "predict": predict, "confidence": round(confidence, 4),
