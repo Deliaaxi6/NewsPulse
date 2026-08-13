@@ -1,0 +1,136 @@
+"""② 关键词筛选与情绪分类：否定修饰 + 程度加权。"""
+import sys
+import datetime as dt
+
+import pandas as pd
+
+from config import (DATA_DIR, KEYWORDS_BULL, KEYWORDS_BEAR, KEYWORDS_NEUT,
+                    NEGATION_GENERAL, NEGATION_BULL_ONLY,
+                    INTENSIFY_STRONG, INTENSIFY_WEAK)
+
+NEG_WINDOW = 20
+
+
+def score_text(text: str) -> float:
+    """返回带符号情绪分：正=利好 负=利空 0=中性。
+    否定词前后 NEG_WINDOW 字内、且与否定词不重叠的关键词命中极性翻转；
+    同一命中只翻转一次；程度词加权。"""
+    if not text:
+        return 0.0
+    hits = []
+    for k in KEYWORDS_BULL:
+        start = 0
+        while True:
+            pos = text.find(k, start)
+            if pos < 0:
+                break
+            hits.append(("bull", pos, pos + len(k)))
+            start = pos + 1
+    for k in KEYWORDS_BEAR:
+        start = 0
+        while True:
+            pos = text.find(k, start)
+            if pos < 0:
+                break
+            hits.append(("bear", pos, pos + len(k)))
+            start = pos + 1
+    flipped = set()
+    bull_net = sum(1 for pol, _, _ in hits if pol == "bull")
+    bear_net = sum(1 for pol, _, _ in hits if pol == "bear")
+    negated_prefixes = ("不及", "低于", "未达", "不达", "未能")
+    for neg in NEGATION_GENERAL:
+        npos = text.find(neg)
+        if npos < 0:
+            continue
+        nend = npos + len(neg)
+        for pol, hstart, hend in hits:
+            if pol == "bear" and text[hstart:hstart + 2] in negated_prefixes:
+                continue  # 复合负面词（不及预期/低于预期/未达预期）自身是否定形态，不再翻转
+            if hstart < nend and hend > npos:
+                continue  # 与否定词重叠的复合词不翻转
+            near = (hend <= npos and npos - hend <= NEG_WINDOW) or \
+                   (hstart >= nend and hstart - nend <= NEG_WINDOW)
+            if not near:
+                continue
+            key = (pol, hstart)
+            if key in flipped:
+                continue
+            flipped.add(key)
+            if pol == "bull":
+                bull_net -= 1
+                bear_net += 1
+            else:
+                bear_net -= 1
+                bull_net += 1
+    for neg in NEGATION_BULL_ONLY:
+        npos = text.find(neg)
+        if npos < 0:
+            continue
+        nend = npos + len(neg)
+        for pol, hstart, hend in hits:
+            if pol == "bear":
+                continue  # 削弱利好词不翻转负面关键词
+            if hstart < nend and hend > npos:
+                continue
+            near = (hend <= npos and npos - hend <= NEG_WINDOW) or \
+                   (hstart >= nend and hstart - nend <= NEG_WINDOW)
+            if not near:
+                continue
+            key = (pol, hstart)
+            if key in flipped:
+                continue
+            flipped.add(key)
+            if pol == "bull":
+                bull_net -= 1
+                bear_net += 1
+    strength = 1.0
+    if any(w in text for w in INTENSIFY_STRONG):
+        strength = 1.5
+    elif any(w in text for w in INTENSIFY_WEAK):
+        strength = 0.5
+    return (bull_net - bear_net) * strength
+
+
+def classify_text(text: str) -> str:
+    score = score_text(text)
+    if score > 0:
+        return "bull"
+    if score < 0:
+        return "bear"
+    return "neutral"
+
+
+def classify(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
+    df["senti"] = df["title"].fillna("") + " " + df["content"].fillna("")
+    df["senti"] = df["senti"].apply(classify_text)
+    return df
+
+
+def summarize(df: pd.DataFrame, date_str: str) -> dict:
+    total = len(df)
+    pos = int((df["senti"] == "bull").sum())
+    neg = int((df["senti"] == "bear").sum())
+    neu = total - pos - neg
+    score = round((pos - neg) / total, 4) if total else 0.0
+    return {"date": date_str, "senti_score": score, "total_news": total,
+            "pos_cnt": pos, "neg_cnt": neg, "neutral_cnt": neu}
+
+
+def main(date_str=None):
+    date_str = date_str or dt.date.today().isoformat()
+    src = DATA_DIR / f"news_{date_str}.csv"
+    if not src.exists():
+        print(f"[warn] 无新闻文件 {src}，跳过")
+        return
+    df = pd.read_csv(src, encoding="utf-8-sig")
+    df = classify(df)
+    summary = summarize(df, date_str)
+    pd.DataFrame([summary]).to_csv(
+        DATA_DIR / "daily_sentiment.csv", index=False,
+        encoding="utf-8-sig", mode="a", header=not (DATA_DIR / "daily_sentiment.csv").exists())
+    print(f"[ok] 情绪分={summary['senti_score']} 利{summary['pos_cnt']}/空{summary['neg_cnt']}/中{summary['neutral_cnt']}")
+
+
+if __name__ == "__main__":
+    main(sys.argv[1] if len(sys.argv) > 1 else None)

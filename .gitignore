@@ -1,0 +1,11 @@
+# 运行时生成数据（不进 git）
+data/
+reports/
+logs/
+
+# Python
+__pycache__/
+*.pyc
+
+# 密钥（服务器部署时生成，严禁入库）
+secrets.json
