@@ -19,6 +19,38 @@ import market_env as me
 import select_stock
 import ml_advisor
 
+STOCK_SENTI_MIN = 3        # 个股新闻 ≥3 条才用个股情绪覆盖市场情绪（方案B）
+STOCK_SENTI_CONF_N = 10    # 个股情绪置信度 = min(1, 新闻条数/10)
+CALLBACK_STRATS = {"回踩年线", "低波动启动", "无大跌回踩"}  # 低吸类策略（方案C）
+OVERBOUGHT_LBC = 3         # 连板 ≥3 视为超买（方案C）
+RSI_OVERBOUGHT = 80        # RSI >80 视为超买（方案C）
+
+
+def _is_callback(strats: list) -> bool:
+    """回调/低吸类策略命中 → 买入不要求当日上涨（企稳即可，方案C）。"""
+    return any(s in CALLBACK_STRATS for s in strats)
+
+
+def _overbought(m: dict, s: dict) -> bool:
+    """超买判定：RSI>80 或 连板≥3（方案C）。技术因子缺失时仅按连板判定。"""
+    rsi = (m.get("rsi") or {}).get("rsi")
+    if rsi is not None and float(rsi) > RSI_OVERBOUGHT:
+        return True
+    return int(s.get("lbc", 0) or 0) >= OVERBOUGHT_LBC
+
+
+def stock_senti_map(date_str: str) -> dict:
+    """读取当日个股情绪（filter_news 生成 stock_sentiment_{date}.csv）。失败返回 {}。"""
+    f = DATA_DIR / f"stock_sentiment_{date_str}.csv"
+    if not f.exists():
+        return {}
+    try:
+        df = pd.read_csv(f, encoding="utf-8-sig", dtype={"stock": str})
+        return {str(r["stock"]): r for _, r in df.iterrows()}
+    except Exception as e:
+        print(f"[warn] 个股情绪读取失败: {e}")
+        return {}
+
 
 def fetch_spot(pool: list) -> dict:
     """全A实时快照，取观察池股票涨跌幅。东财直连优先，失败降级到新浪日K。"""
@@ -85,6 +117,7 @@ def decide(score: float, spot: dict, pool: list) -> list:
     ff = fund_factor_extra(dt.date.today().isoformat())
     env = me.market_env(dt.date.today().isoformat())  # 大盘环境，None=数据不可用不压制
     ml = ml_advisor.advice(dt.date.today().isoformat())  # ML 风控，数据不足 fail-open
+    ss_map = stock_senti_map(dt.date.today().isoformat())  # 个股情绪（方案B）
     for s in pool:
         sym = s["symbol"]
         if sym not in spot:
@@ -101,11 +134,22 @@ def decide(score: float, spot: dict, pool: list) -> list:
             tech_note += " | 形态: " + "/".join(patterns)
         if strats:
             tech_note += " | 策略: " + "/".join(strats)
-        if score > SENTI_BUY_THRESHOLD and change > 0:
+        score_i = score  # 个股情绪有效时覆盖市场情绪（仅信号判定与置信度）
+        w = 1.0
+        senti_note = ""
+        ss = ss_map.get(sym)
+        if ss is not None and int(ss.get("count", 0)) >= STOCK_SENTI_MIN:
+            score_i = float(ss["score"])
+            w = min(1.0, int(ss["count"]) / STOCK_SENTI_CONF_N)
+            senti_note = f" | 个股情绪: {score_i:+.2f}({int(ss['count'])}条)"
+        if score_i > SENTI_BUY_THRESHOLD and (change > 0 or _is_callback(strats)):
             signal = "buy"
             predict = "up"
-            confidence = min(1.0, abs(score) + abs(change) / 10)
-            reason = f"情绪{score:.2f}>0.3 且 {s['name']}涨{change:.2f}%"
+            confidence = min(1.0, abs(score_i) + abs(change) / 10) * w
+            if _is_callback(strats) and change <= 0:
+                reason = f"情绪{score_i:.2f}>0.3 且 {s['name']}回调企稳（{','.join(strats)}）"
+            else:
+                reason = f"情绪{score_i:.2f}>0.3 且 {s['name']}涨{change:.2f}%"
             if m.get("ok") and m.get("ma_bullish"):
                 confidence = min(1.0, confidence + 0.1)  # 均线多头共振小幅加成
                 reason += "（均线多头共振）"
@@ -117,16 +161,19 @@ def decide(score: float, spot: dict, pool: list) -> list:
             if soft_note:
                 predict = "flat"
                 reason += f"（{soft_note}）"
-        elif score < SENTI_SELL_THRESHOLD:
+            if _overbought(m, s):
+                confidence = max(0.0, confidence - 0.1)
+                reason += "（超买降权）"
+        elif score_i < SENTI_SELL_THRESHOLD:
             signal = "sell"
             predict = "down"
-            confidence = min(1.0, abs(score))
-            reason = f"情绪{score:.2f}<{-0.3}"
+            confidence = min(1.0, abs(score_i)) * w
+            reason = f"情绪{score_i:.2f}<{-0.3}"
         else:
             signal = "hold"
             predict = "flat"
-            confidence = abs(score)
-            reason = f"情绪{score:.2f} 观望"
+            confidence = abs(score_i) * w
+            reason = f"情绪{score_i:.2f} 观望"
         if score >= SENTI_SCORE_CUT:
             leverage = LEVERAGE_HIGH
         elif score >= SENTI_BUY_THRESHOLD:
@@ -143,6 +190,7 @@ def decide(score: float, spot: dict, pool: list) -> list:
         if ml.get("intervene"):
             confidence = min(1.0, max(0.0, confidence - ml["penalty"]))
             reason += f" | {ml['reason']}"
+        reason += senti_note
         reason += f" | {tech_note}"
         if ff.get("label"):
             reason += f" | 资金面: {ff['label']}"

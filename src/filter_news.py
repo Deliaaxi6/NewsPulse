@@ -8,6 +8,7 @@ from config import (DATA_DIR, KEYWORDS_BULL, KEYWORDS_BEAR, KEYWORDS_NEUT,
                     NEGATION_GENERAL, NEGATION_BULL_ONLY,
                     INTENSIFY_STRONG, INTENSIFY_WEAK)
 import llm_sentiment
+import select_stock
 
 NEG_WINDOW = 20
 
@@ -122,6 +123,28 @@ def summarize(df: pd.DataFrame, date_str: str) -> dict:
             "pos_cnt": pos, "neg_cnt": neg, "neutral_cnt": neu}
 
 
+def stock_sentiment(df: pd.DataFrame, pool_symbols: set) -> dict:
+    """按个股新闻（related_stocks 为 6 位代码且在观察池内）分组聚合个股情绪分。
+    市场新闻的 related_stocks 是链接（非 6 位代码）→ 不参与分组，宁缺毋假。
+    返回 {sym: {score, count, pos, neg}}。"""
+    res = {}
+    if df is None or df.empty:
+        return res
+    sub = df[df["related_stocks"].astype(str).str.fullmatch(r"\d{6}", na=False)]
+    if not pool_symbols:
+        return res
+    sub = sub[sub["related_stocks"].isin(pool_symbols)]
+    if sub.empty:
+        return res
+    for sym, g in sub.groupby("related_stocks"):
+        pos = int((g["senti"] == "bull").sum())
+        neg = int((g["senti"] == "bear").sum())
+        n = len(g)
+        res[sym] = {"score": round((pos - neg) / n, 4), "count": n,
+                    "pos": pos, "neg": neg}
+    return res
+
+
 def main(date_str=None):
     date_str = date_str or dt.date.today().isoformat()
     src = DATA_DIR / f"news_{date_str}.csv"
@@ -131,6 +154,15 @@ def main(date_str=None):
     df = pd.read_csv(src, encoding="utf-8-sig")
     df = classify(df, date_str)
     summary = summarize(df, date_str)
+    pool = select_stock.load_pool(date_str)
+    ss = stock_sentiment(df, {s["symbol"] for s in pool})
+    if ss:
+        rows = [{"date": date_str, "stock": k, "score": v["score"],
+                 "count": v["count"], "pos": v["pos"], "neg": v["neg"]}
+                for k, v in ss.items()]
+        pd.DataFrame(rows).to_csv(DATA_DIR / f"stock_sentiment_{date_str}.csv",
+                                  index=False, encoding="utf-8-sig")
+        print(f"[ok] 个股情绪 {len(rows)} 只 → stock_sentiment_{date_str}.csv")
     out = DATA_DIR / "daily_sentiment.csv"
     old = pd.read_csv(out, encoding="utf-8-sig") if out.exists() else pd.DataFrame()
     if not old.empty:
