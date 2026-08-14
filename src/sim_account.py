@@ -152,9 +152,12 @@ def _stop_cooled(sym: str, today: str) -> bool:
     return days < STOP_COOLDOWN_DAYS
 
 
-def stop_loss_signal(state: dict, quotes: dict, today: str) -> list:
+def stop_loss_signal(state: dict, quotes: dict, today: str,
+                     ratio: float = None) -> list:
     """持仓成本回撤 ≥STOP_LOSS_RATIO → 生成止损卖出决策（与普通 sell 同路径成交，
-    涨停不卖/一字板保护由 run_orders 统一处理）。成本缺失/无行情跳过，宁缺毋假。"""
+    涨停不卖/一字板保护由 run_orders 统一处理）。成本缺失/无行情跳过，宁缺毋假。
+    ratio 缺省取 config.STOP_LOSS_RATIO（回测网格扫描可注入不同值）。"""
+    ratio = STOP_LOSS_RATIO if ratio is None else ratio
     rows = []
     for sym, pos in state["positions"].items():
         if pos.get("shares", 0) <= 0 or not pos.get("cost"):
@@ -167,7 +170,7 @@ def stop_loss_signal(state: dict, quotes: dict, today: str) -> list:
         if cost <= 0:
             continue
         drawdown = (price - cost) / cost
-        if drawdown <= -STOP_LOSS_RATIO:
+        if drawdown <= -ratio:
             rows.append({"stock": sym, "signal": "sell",
                          "leverage": pos.get("leverage", 1),
                          "reason": f"个股止损（成本{cost:.2f}→现价{price:.2f}，"

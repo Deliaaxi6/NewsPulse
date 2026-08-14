@@ -66,9 +66,60 @@ def main() -> int:
         out = tmp / "backtest_2026-08-13_2026-08-14.csv"
         check("回测流程走 select 池并产出明细", out.exists(), str(out))
 
+    # —— 方案A：止损触发 + 冷却禁买（5 个新闻日）——
+    hist5 = {
+        "2026-08-13": {"open": 100.0, "close": 100.0, "pct": 0.0},    # 首日pct=0 → hold
+        "2026-08-14": {"open": 100.0, "close": 101.0, "pct": 1.0},    # buy → 15日开盘买(100)
+        "2026-08-15": {"open": 100.0, "close": 95.0, "pct": -5.9},    # hold（持仓中）
+        "2026-08-16": {"open": 88.0, "close": 96.0, "pct": 1.05},     # 开盘88→回撤12%止损卖; 决策buy(持仓跳过)
+        "2026-08-17": {"open": 90.0, "close": 95.0, "pct": -1.0},     # 16日buy信号→冷却禁买
+    }
+    for d in ("2026-08-13", "2026-08-14", "2026-08-15",
+              "2026-08-16", "2026-08-17"):
+        (tmp / f"news_{d}.csv").write_text("title,content\n利好,业绩大增\n",
+                                           encoding="utf-8-sig")
+        (tmp / f"select_{d}.csv").write_text(
+            "code,symbol,name,lbc,seal_amount,strategies,score\n"
+            "600519,600519,贵州茅台,1,100000000,放量上涨,0.8\n",
+            encoding="utf-8-sig")
+    with mock.patch("backtest.load_hist_quotes", return_value=hist5), \
+         mock.patch("backtest.cb.in_cooldown", return_value=False), \
+         mock.patch("backtest.cb.record_sentiment"):
+        r = bt.run_backtest("2026-08-13", "2026-08-17", sl_ratio=0.08,
+                            sl_cool=2, grid=True)
+        check("止损-16日开盘回撤12%触发止损卖", r["sl_sells"] == 1,
+              f"sl_sells={r.get('sl_sells')}")
+        check("止损-15日买入1笔", r["buys"] == 1, f"buys={r.get('buys')}")
+        check("止损冷却-17日冷却期内禁买", r["buys"] == 1,
+              "17日buy信号被冷却拦截，总买入仍1笔")
+
+    # —— 方案B：个股情绪覆盖市场分（市场-0.5 → 个股+0.5 count≥3 → buy）——
+    # 14日决策 buy → 15日开盘成交，故 end=08-15（15日select文件已有）
+    for d in ("2026-08-13", "2026-08-14"):
+        (tmp / f"news_{d}.csv").write_text("title,content\n利空,行业利空\n",
+                                           encoding="utf-8-sig")
+    with mock.patch("backtest.load_hist_quotes", return_value=hist5), \
+         mock.patch("backtest.cb.in_cooldown", return_value=False), \
+         mock.patch("backtest.cb.record_sentiment"), \
+         mock.patch("backtest.filter_news.summarize",
+                    return_value={"senti_score": -0.5}), \
+         mock.patch("backtest.decision.stock_senti_map",
+                    return_value={"600519": {"score": 0.5, "count": 6,
+                                             "pos": 4, "neg": 0}}):
+        r = bt.run_backtest("2026-08-13", "2026-08-15", senti_min=3, grid=True)
+        check("个股情绪覆盖-市场负分仍按个股分买入", r["buys"] == 1,
+              f"buys={r.get('buys')}")
+
+    # —— 网格扫描模式（3×3×3=27 组，不崩溃且返回统计）——
+    with mock.patch("backtest.load_hist_quotes", return_value=hist5), \
+         mock.patch("backtest.cb.in_cooldown", return_value=False), \
+         mock.patch("backtest.cb.record_sentiment"):
+        bt.run_grid("2026-08-13", "2026-08-17")
+    check("网格扫描 27 组执行无异常", True, "")
+
     bt.DATA_DIR = old_data
     bt.STOCKS = old_stocks
-    print(f"backtest: {6 - fails}/6 passed")
+    print(f"backtest: {11 - fails}/11 passed")
     return 1 if fails else 0
 
 
