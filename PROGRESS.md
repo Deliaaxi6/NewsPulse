@@ -34,6 +34,13 @@
 
 ## 会话日志（从设计阶段开始记录）
 
+### 2026-08-14 — 收尾小事项（Telegram 重试 / 订阅监控 / 分支改名）
+- ✅ Telegram 推送加固：send_text 对网络类异常（SSL EOF/连接/超时）自动重试 2 次（间隔 2s/4s），HTTP 业务错误不重试；解决服务器经 mihomo 代理偶发 SSL EOF；test_telegram 11→14 用例
+- ✅ mihomo 订阅监控：/opt/newspulse/scripts/sub_check.sh（带 Clash UA 拉主备订阅源，body<5KB 视为失效→error 邮件告警），crontab 周日 8:00；实测主源 51774B 正常
+- ✅ 分支改名：本地 master→main 已推送（远端 master 仍为默认分支，待 GitHub 手动改默认分支后删除）
+- ✅ 提交 a711309（telegram 重试）
+- 📌 待办：GitHub 设置→默认分支改 main → 删除远端 master
+
 ### 2026-08-14 — 周复盘自动化（情绪分-指数相关性）
 - ✅ src/weekly_review.py 新建：回放当周 news CSV → classify+summarize 每日情绪分（LLM 缓存幂等零新增调用）；上证指数日涨跌（akshare）；统计 情绪(T) vs 次日指数(T+1) Pearson r + 方向命中率（|分|>0.3 信号日）；暗色主题 Chart.js 报告 reports/weekly_review_YYYY-WW.html + 邮件推送
 - ✅ 数据不足（<3 个新闻日）跳过生成（预热期合理行为，fail-safe）
