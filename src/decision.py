@@ -17,6 +17,7 @@ import net_guard
 import strategies
 import market_env as me
 import select_stock
+import ml_advisor
 
 
 def fetch_spot(pool: list) -> dict:
@@ -83,6 +84,7 @@ def decide(score: float, spot: dict, pool: list) -> list:
     rows = []
     ff = fund_factor_extra(dt.date.today().isoformat())
     env = me.market_env(dt.date.today().isoformat())  # 大盘环境，None=数据不可用不压制
+    ml = ml_advisor.advice(dt.date.today().isoformat())  # ML 风控，数据不足 fail-open
     for s in pool:
         sym = s["symbol"]
         if sym not in spot:
@@ -138,6 +140,9 @@ def decide(score: float, spot: dict, pool: list) -> list:
             reason = f"熔断冷却中({cb.status_text()})，暂停交易"
         if ff.get("conf"):
             confidence = min(1.0, max(0.0, confidence + ff["conf"]))
+        if ml.get("intervene"):
+            confidence = min(1.0, max(0.0, confidence - ml["penalty"]))
+            reason += f" | {ml['reason']}"
         reason += f" | {tech_note}"
         if ff.get("label"):
             reason += f" | 资金面: {ff['label']}"

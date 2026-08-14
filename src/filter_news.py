@@ -7,6 +7,7 @@ import pandas as pd
 from config import (DATA_DIR, KEYWORDS_BULL, KEYWORDS_BEAR, KEYWORDS_NEUT,
                     NEGATION_GENERAL, NEGATION_BULL_ONLY,
                     INTENSIFY_STRONG, INTENSIFY_WEAK)
+import llm_sentiment
 
 NEG_WINDOW = 20
 
@@ -100,10 +101,14 @@ def classify_text(text: str) -> str:
     return "neutral"
 
 
-def classify(df: pd.DataFrame) -> pd.DataFrame:
+def classify(df: pd.DataFrame, date_str: str | None = None) -> pd.DataFrame:
     df = df.copy()
     df["senti"] = df["title"].fillna("") + " " + df["content"].fillna("")
     df["senti"] = df["senti"].apply(classify_text)
+    llm = llm_sentiment.classify_batch(
+        [{"text": t} for t in df["senti"]], date_str)
+    for idx, label in llm.items():
+        df.loc[idx, "senti"] = label
     return df
 
 
@@ -124,7 +129,7 @@ def main(date_str=None):
         print(f"[warn] 无新闻文件 {src}，跳过")
         return
     df = pd.read_csv(src, encoding="utf-8-sig")
-    df = classify(df)
+    df = classify(df, date_str)
     summary = summarize(df, date_str)
     out = DATA_DIR / "daily_sentiment.csv"
     old = pd.read_csv(out, encoding="utf-8-sig") if out.exists() else pd.DataFrame()

@@ -27,12 +27,23 @@
 ## Phase 3 (可选)
 
 - [ ] Telegram 频道接入（需境外跳板评估）
-- [ ] 大模型新闻分类升级（DeepSeek API）
-- [ ] 情绪分+机器学习联合决策
+- [x] 大模型新闻分类升级（DeepSeek API）— 代码/测试/降级就绪，待用户提供 API key（环境变量 NEWSPULSE_DS_KEY）后实测真实调用
+- [x] 情绪分+机器学习联合决策 — 框架就绪（纯 numpy 逻辑回归，数据 ≥20 交易日自动启用），当前数据不足自动跳过
 
 ---
 
 ## 会话日志（从设计阶段开始记录）
+
+### 2026-08-14 — Phase 3：DeepSeek 全量新闻分类 + ML 联合决策框架
+- ✅ src/llm_sentiment.py 新建（DeepSeek 全量新闻二次分类）：deepseek-v4-flash 非思考模式、temperature=0、strict JSON（bull/bear/neutral+confidence）；批处理 BATCH=15；同日按内容 md5 hash 缓存 data/llm_cache_{date}.json（同日重跑幂等零计费）；单批失败该批保留关键词规则、连续 3 批失败本次熔断；key 环境变量 NEWSPULSE_DS_KEY（未配置跳过，fail-open）
+- ✅ src/config.py 新增 DEEPSEEK_API_KEY/MODEL/API（默认 https://api.deepseek.com，国内直连无需代理）
+- ✅ src/filter_news.py 集成：classify(df, date_str) 关键词规则分类后 LLM 二次覆盖（LLM 非 None 才覆盖），LLM 覆盖率打印
+- ✅ tests/test_llm_sentiment.py 新建 9 用例（未配置跳过/成功映射/缓存幂等/批失败降级/连续3批熔断/JSON解析失败/集成覆盖/无key保留规则），全过
+- ✅ src/ml_advisor.py 新建（ML 联合决策框架）：纯 numpy 逻辑回归（sklearn 未安装，未引入新依赖）、L2+标准化+2000 轮梯度下降；特征 5 维（senti_score/mom/bull_ratio/total_news/ma3，仅本地 CSV 无网络依赖）；标签=次日总资产下跌（portfolio.csv）；数据 <20 交易日自动跳过（fail-open）；模块级同日训练缓存；p_drop≥0.6 → confidence -0.1 + reason 追加（不改主规则/杠杆/熔断）
+- ✅ src/decision.py 集成：decide() 每日取一次 advice，intervene 时降 confidence 追加 reason（与 G6/G8 同级辅助因子）
+- ✅ tests/test_ml_advisor.py 新建 10 用例（无数据跳过/不足20天跳过/合成数据训练收敛/干预阈值/缓存复用/上涨市不干预/特征零值安全/缺文件fail-open/decision 集成干预与未启用），全过
+- ✅ 全量回归 15 suite ALL PASSED；真实链路：filter_news 无 key 降级正常（情绪 0.097 与历史一致，幂等）、ml_advisor 数据不足跳过、decision 2026-08-14 全 hold 正常
+- 📌 待办：用户提供 DeepSeek API key 后 setx NEWSPULSE_DS_KEY 实测真实调用；ML 需积累 ≥20 个交易日数据后自动生效；Telegram 频道接入（Phase 3 剩余项）
 
 ### 2026-08-13 — 前端预览页升级：Chart.js dashboard 模板（GitHub 拉取改造）
 - ✅ 选型：GitHub 开源单文件模板 KPI_Analyzer_Dashboard（暗色主题+KPI卡片+趋势图），克隆至 Temp\opencode\ 供改造参考（不并入项目）；备选 IDV-App 一并拉取对比

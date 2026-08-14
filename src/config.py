@@ -24,6 +24,12 @@ TELEGRAM_CHAT_ID = os.environ.get("NEWSPULSE_TG_CHAT_ID", "")
 TELEGRAM_API_BASE = os.environ.get("NEWSPULSE_TG_API", "https://api.telegram.org")
 TELEGRAM_PROXY = os.environ.get("NEWSPULSE_TG_PROXY", "http://127.0.0.1:7897")
 
+# DeepSeek LLM 新闻分类（Phase 3）：key 从环境变量读取（不硬编码不进 git），
+# 未配置则跳过 LLM 分类（降级关键词规则）；api.deepseek.com 国内直连无需代理。
+DEEPSEEK_API_KEY = os.environ.get("NEWSPULSE_DS_KEY", "")
+DEEPSEEK_MODEL = os.environ.get("NEWSPULSE_DS_MODEL", "deepseek-v4-flash")
+DEEPSEEK_API = os.environ.get("NEWSPULSE_DS_API", "https://api.deepseek.com")
+
 # 回测基准池（backtest.py 专用）：生产链路观察池已切换为 select_stock 动态选股
 # （data/select_YYYY-MM-DD.csv，涨停池+策略模板），不再从本常量取每日标的。
 STOCKS = [
