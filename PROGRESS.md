@@ -76,6 +76,9 @@
 - ✅ 熔断缺陷2修复（repeat_cool 窗口改交易日口径）：新增 fund_flow.trading_days_between()（adata 交易日历，日历不可用返回 None）；circuit_breaker._is_repeat() 交易日≤10 判重复，日历不可用降级自然日（fail-open）；test_circuit +4（14/14）、test_fund_flow +4（含倒序/跨休市/空日历），回归 12 suite ALL PASSED
 - ✅ Telegram 推送接入（Phase 3 基础版）：新增 src/telegram_push.py（sendMessage + 日报摘要 HTML，代理默认走本机 Clash 127.0.0.1:7897，实测 api.telegram.org 经此可达）；config 新增 TELEGRAM_BOT_TOKEN/CHAT_ID/API/PROXY（环境变量注入，未配置 fail-open 跳过）；daily_report 报告生成后追加推送；requirements 显式声明 requests；test_telegram 8/8，回归 13 suite ALL PASSED
 - ✅ Telegram 推送实测通过：bot newspulse_daily_bot（token 已配用户环境变量 NEWSPULSE_TG_TOKEN），chat_id 6359097393（NEWSPULSE_TG_CHAT_ID），日报摘要 sendMessage 推送成功；服务器部署时改走 secrets.json 注入
+- ✅ 公开仓库推送：Deliaaxi6/NewsPulse（public，https://github.com/Deliaaxi6/NewsPulse），
+  提交 926ff46（综合选股/熔断修复/CLI 统一/Telegram 推送 33 文件），
+  推送前扫描确认无 token/密钥/私钥，data/reports/logs 由 .gitignore 排除
 - 📌 下一步：情绪分周复盘（需数据积累）/ 日报推送对接定时任务
 
 ### 2026-08-13 — InStock 融入：K线形态扩展至 61 种（talib 引擎）
