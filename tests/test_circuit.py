@@ -49,6 +49,21 @@ def main() -> int:
         st = cb.load_state()
         check("窗口内二次熔断冷却翻倍", st["repeat_cool"] == 2 and cb.cooling_days(st) == 10)
 
+        cb.save_state({"status": "normal", "cool_start": None, "recovered_days": 0,
+                       "pos_senti_days": 0, "repeat_cool": 1, "last_cool_date": "2026-08-01"})
+        cb.check_circuit("2026-08-25", 60000, 100000, 3)
+        st = cb.load_state()
+        check("超窗口(交易日>10)不翻倍", st["repeat_cool"] == 1 and cb.cooling_days(st) == 5)
+
+        old = cb.trading_days_between
+        cb.trading_days_between = lambda a, b: 10
+        check("窗口边界=10交易日判重复", cb._is_repeat("2026-08-01", "2026-08-25") is True)
+        cb.trading_days_between = lambda a, b: 11
+        check("窗口11交易日判非重复", cb._is_repeat("2026-08-01", "2026-08-25") is False)
+        cb.trading_days_between = lambda a, b: None
+        check("日历不可用降级自然日", cb._is_repeat("2026-08-03", "2026-08-07") is True)
+        cb.trading_days_between = old
+
         cb.record_sentiment(0.1)
         cb.record_sentiment(-0.2)
         cb.record_sentiment(0.3)
@@ -70,7 +85,7 @@ def main() -> int:
         check("恢复后杠杆解锁", cb.leverage_cap() == 99)
 
         cb.STATE_FILE.unlink(missing_ok=True)
-    print(f"circuit: {10 - fails}/10 passed")
+    print(f"circuit: {14 - fails}/14 passed")
     return 1 if fails else 0
 
 

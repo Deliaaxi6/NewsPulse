@@ -7,19 +7,22 @@ import datetime as dt
 
 import pandas as pd
 
-from config import (DATA_DIR, STOCKS, INIT_CASH, MAX_POSITION_RATIO, MAX_TOTAL_RATIO,
-                    COMMISSION_RATE, STAMP_TAX, MIN_COMMISSION,
-                    LIMIT_UP_PCT, LIMIT_DOWN_PCT, ONE_WORD_TOL)
+from config import (DATA_DIR, INIT_CASH, MAX_POSITION_RATIO, MAX_TOTAL_RATIO,
+                    COMMISSION_RATE, STAMP_TAX, MIN_COMMISSION, LIMIT_UP_PCT,
+                    LIMIT_DOWN_PCT, ONE_WORD_TOL)
 import circuit_breaker as cb
+import net_guard
+import select_stock
 
 FLAT_BAND = 1.0  # |涨跌幅| < FLAT_BAND% 视为 "flat"
 
 
 def is_one_word_board(q: dict) -> bool:
-    """一字板：open==high==low，且涨跌幅达板级（无法成交）。"""
+    """一字板：open==high==low，且涨跌幅达板级（无法成交）。
+    涨跌幅不可用（pct=None，腾讯分时降级）时不判定一字板，宁缺毋假。"""
     o, h, l = q.get("open"), q.get("high"), q.get("low")
-    pct = q.get("pct", 0.0)
-    if None in (o, h, l):
+    pct = q.get("pct")
+    if None in (o, h, l) or pct is None:
         return False
     return abs(h - o) <= ONE_WORD_TOL and abs(l - o) <= ONE_WORD_TOL and abs(pct) >= 9.0
 
@@ -45,23 +48,45 @@ def peak_value_ever() -> float:
     return INIT_CASH
 
 
-def latest_quote():
+def latest_quote(pool: list):
+    """行情降级链：东财快照 → 新浪日K → 腾讯分时（adata，仅价格）。东财直连优先。"""
     try:
         import akshare as ak
-        df = ak.stock_zh_a_spot_em()
-        df = df[df["代码"].isin([s["symbol"] for s in STOCKS])]
+        df = net_guard.try_chain("东财快照", [("em", lambda: ak.stock_zh_a_spot_em())])
+        df = df[df["代码"].isin([s["symbol"] for s in pool])]
         return {r["代码"]: {"price": float(r["最新价"]), "pct": float(r["涨跌幅"])}
                 for _, r in df.iterrows()}
     except Exception as e:
         print(f"[warn] 东财行情失败: {e}，降级新浪日K")
-        return latest_quote_sina()
+    sina = latest_quote_sina(pool)
+    if sina:
+        return sina
+    print("[warn] 新浪行情不可用，降级腾讯分时（仅价格，涨跌幅未知）")
+    return latest_quote_qq(pool)
 
 
-def latest_quote_sina():
+def latest_quote_qq(pool: list):
+    """腾讯分时降级：最新成交价；无昨收无法计算涨跌幅，pct=None（宁缺毋假）。"""
+    import adata
+    result = {}
+    qq = adata.stock.market.qq_market
+    for s in pool:
+        sym = s["symbol"]
+        try:
+            df = qq.get_market_bar(stock_code=sym)
+            if df is not None and len(df):
+                result[sym] = {"price": float(df.iloc[-1]["price"]),
+                               "pct": None, "open": None, "high": None, "low": None}
+        except Exception as e:
+            print(f"[warn] {sym} 腾讯分时失败: {e}")
+    return result
+
+
+def latest_quote_sina(pool: list):
     """新浪日K降级：price=最新close，pct=(最新close-昨日close)/昨日close*100。"""
     import akshare as ak
     result = {}
-    for s in STOCKS:
+    for s in pool:
         sym = s["symbol"]
         prefix = "sh" if sym.startswith("6") else "sz"
         try:
@@ -84,14 +109,14 @@ def load_portfolio():
         if pf:
             last = pf[-1]
             if last["date"] != dt.date.today().isoformat():
-                return {"cash": float(last["cash"]), "positions": {r["stock"]: {"shares": float(r["shares"]), "cost": float(r["cost"])}
+                return {"cash": float(last["cash"]), "positions": {r["stock"]: {"shares": float(r["shares"]), "cost": float(r["cost"]), "leverage": float(r.get("leverage", 1))}
                         for r in pf if r["date"] == last["date"]}}
     return {"cash": INIT_CASH, "positions": {}}
 
 
-def positions_rows(state, today, quotes):
+def positions_rows(state, today, quotes, pool):
     rows = []
-    for s in STOCKS:
+    for s in pool:
         sym = s["symbol"]
         pos = state["positions"].get(sym)
         q = quotes.get(sym, {})
@@ -100,15 +125,15 @@ def positions_rows(state, today, quotes):
         mv = shares * price
         rows.append({"date": today, "stock": sym, "shares": shares,
                      "cost": pos["cost"] if pos else 0.0, "market_value": round(mv, 2),
-                     "cash": round(state["cash"], 2), "leverage": 1.0,
+                     "cash": round(state["cash"], 2), "leverage": pos["leverage"] if pos else 1.0,
                      "total_value": round(state["cash"] + mv, 2)})
     return rows
 
 
-def run_orders(state, decisions, quotes, today, logs):
+def run_orders(state, decisions, quotes, today, logs, pool):
     total_value = state["cash"] + sum(
         state["positions"].get(s["symbol"], {}).get("shares", 0) * quotes.get(s["symbol"], {}).get("price", 0)
-        for s in STOCKS)
+        for s in pool)
     for d in decisions:
         sym = d["stock"]
         q = quotes.get(sym)
@@ -124,7 +149,7 @@ def run_orders(state, decisions, quotes, today, logs):
             pos = state["positions"].get(sym)
             if not pos or pos["shares"] <= 0:
                 continue
-            if q["pct"] >= LIMIT_UP_PCT:
+            if q.get("pct") is not None and q["pct"] >= LIMIT_UP_PCT:
                 print(f"[warn] {sym} 涨停不卖")
                 log_blocked(today, sym, "涨停挂单无法成交")
                 continue
@@ -136,7 +161,7 @@ def run_orders(state, decisions, quotes, today, logs):
                          "leverage": d["leverage"], "reason": d["reason"]})
             state["positions"].pop(sym, None)
         elif d["signal"] == "buy":
-            if q["pct"] <= LIMIT_DOWN_PCT:
+            if q.get("pct") is not None and q["pct"] <= LIMIT_DOWN_PCT:
                 print(f"[warn] {sym} 跌停不买")
                 log_blocked(today, sym, "跌停挂单无法成交")
                 continue
@@ -151,10 +176,19 @@ def run_orders(state, decisions, quotes, today, logs):
             if amount + fee > state["cash"]:
                 continue
             state["cash"] -= amount + fee
-            state["positions"][sym] = {"shares": shares, "cost": round(amount / shares, 3)}
+            state["positions"][sym] = {"shares": shares, "cost": round(amount / shares, 3),
+                                        "leverage": d["leverage"]}
             logs.append({"date": today, "stock": sym, "action": "buy", "price": q["price"],
                          "shares": shares, "amount": round(amount, 2),
                          "leverage": d["leverage"], "reason": d["reason"]})
+
+
+def _top_leverage(decisions, positions):
+    """熔断判定用杠杆 = max(当日决策杠杆, 持仓杠杆)。
+    持仓期无新决策（全 hold）时仍保持买入时的杠杆敞口，回撤33%可正常触发熔断。"""
+    d = max((int(x.get("leverage", 1)) for x in decisions), default=1)
+    p = max((int(x.get("leverage", 1)) for x in positions.values()), default=1)
+    return max(d, p)
 
 
 def load_previous_decisions(today):
@@ -185,7 +219,10 @@ def validate_predictions(today, quotes):
         if not q:
             print(f"[warn] 预测校验 {prev_date} {sym} 行情缺失，跳过")
             continue
-        pct = q["pct"]
+        pct = q.get("pct")
+        if pct is None:
+            print(f"[warn] 预测校验 {prev_date} {sym} 涨跌幅不可用，跳过")
+            continue
         if pred == "up":
             hit = 1 if pct > 0 else 0
         elif pred == "down":
@@ -211,11 +248,15 @@ def main(date_str=None):
         print(f"[warn] 无决策文件 {qfile}，跳过撮合")
         return
     decisions = pd.read_csv(qfile, encoding="utf-8-sig", dtype={"stock": str}).to_dict("records")
-    quotes = latest_quote()
+    state = load_portfolio()
+    pool = select_stock.load_pool(date_str)
+    held = [{"symbol": sym} for sym, p in state["positions"].items()
+            if p["shares"] > 0 and sym not in {s["symbol"] for s in pool}]
+    pool = pool + held  # 持仓股票永远纳入报价/估值，避免退池后无法卖出
+    quotes = latest_quote(pool)
     if not quotes:
         return
     validate_predictions(date_str, quotes)
-    state = load_portfolio()
     logs = []
     if state["cash"] >= INIT_CASH * 0.999 and not state["positions"]:
         print("[info] 首次运行，初始化模拟账户 10 万")
@@ -223,9 +264,9 @@ def main(date_str=None):
         print(f"[circuit] 熔断冷却中（{cb.status_text()}），今日全部观望不交易")
         decisions = [dict(d, signal="hold", reason="熔断冷却中，暂停交易")
                      for d in decisions]
-    run_orders(state, decisions, quotes, date_str, logs)
+    run_orders(state, decisions, quotes, date_str, logs, pool)
     pfile = DATA_DIR / "portfolio.csv"
-    rows = positions_rows(state, date_str, quotes)
+    rows = positions_rows(state, date_str, quotes, pool)
     pd.DataFrame(rows).to_csv(pfile, index=False, encoding="utf-8-sig",
                               mode="a", header=not pfile.exists())
     for s in rows:
@@ -239,7 +280,7 @@ def main(date_str=None):
             print(f"[trade] {l['action']} {l['stock']} {l['shares']:.0f}股 @{l['price']} → {l['amount']:.2f}")
 
     total_value = float(rows[-1]["total_value"]) if rows else state["cash"]
-    top_leverage = max((int(d.get("leverage", 1)) for d in decisions), default=1)
+    top_leverage = _top_leverage(decisions, state["positions"])
     events = cb.check_circuit(date_str, total_value, peak_value_ever(), top_leverage)
     senti_score = _last_sentiment_score()
     cb.record_sentiment(senti_score)
@@ -259,4 +300,11 @@ def _last_sentiment_score() -> float:
 
 
 if __name__ == "__main__":
-    main(sys.argv[1] if len(sys.argv) > 1 else None)
+    args = sys.argv[1:]
+    date_str = None
+    if args:
+        if args[0] == "--date" and len(args) > 1:
+            date_str = args[1]
+        else:
+            date_str = args[0]
+    main(date_str)

@@ -1,35 +1,42 @@
 """③ 决策：情绪分+个股当日涨跌幅 → 买卖信号+杠杆档位。
 G8 辅助因子：技术指标/形态仅微调 confidence 与 reason，不改变买卖主规则。
+G6 辅助因子：资金面（两融/北向）同样仅微调 confidence 与 reason，不改变主规则。
 """
 import sys
 import datetime as dt
 
 import pandas as pd
 
-from config import (DATA_DIR, STOCKS, SENTI_BUY_THRESHOLD, SENTI_SELL_THRESHOLD,
+from config import (DATA_DIR, SENTI_BUY_THRESHOLD, SENTI_SELL_THRESHOLD,
                     LEVERAGE_HIGH, LEVERAGE_MID, LEVERAGE_LOW, SENTI_SCORE_CUT)
 import circuit_breaker as cb
 import indicators
 import kline_patterns
+import fund_flow
+import net_guard
+import strategies
+import market_env as me
+import select_stock
 
 
-def fetch_spot():
-    """全A实时快照，取4只股票涨跌幅。失败降级到新浪日K。"""
+def fetch_spot(pool: list) -> dict:
+    """全A实时快照，取观察池股票涨跌幅。东财直连优先，失败降级到新浪日K。"""
+    symbols = {s["symbol"] for s in pool}
     try:
         import akshare as ak
-        df = ak.stock_zh_a_spot_em()
-        df = df[df["代码"].isin([s["symbol"] for s in STOCKS])]
+        df = net_guard.try_chain("东财快照", [("em", lambda: ak.stock_zh_a_spot_em())])
+        df = df[df["代码"].isin(symbols)]
         return {r["代码"]: float(r["涨跌幅"]) for _, r in df.iterrows()}
     except Exception as e:
         print(f"[warn] 东财行情失败: {e}，降级新浪日K")
-        return fetch_spot_sina()
+        return fetch_spot_sina(pool)
 
 
-def fetch_spot_sina():
+def fetch_spot_sina(pool: list) -> dict:
     """新浪日K降级：涨跌幅=(最新close-昨日close)/昨日close*100。"""
     import akshare as ak
     result = {}
-    for s in STOCKS:
+    for s in pool:
         sym = s["symbol"]
         prefix = "sh" if sym.startswith("6") else "sz"
         try:
@@ -54,9 +61,29 @@ def tech_factor(sym: str) -> dict:
         return {"ok": False, "reason": "技术因子不可用"}, []
 
 
-def decide(score: float, spot: dict) -> list:
+def fund_factor_extra(today: str) -> dict:
+    """G6 资金面辅助因子（大盘级，每日一次）：微调 confidence（±0.05）并生成摘要。"""
+    try:
+        return fund_flow.fund_factor(today)
+    except Exception as e:
+        print(f"[warn] 资金面因子失败: {e}")
+        return {"conf": 0.0, "label": "", "unavailable": []}
+
+
+def strategy_factor(sym: str) -> list:
+    """InStock 经典策略因子：命中策略中文名列表。失败返回 []，不阻断决策。"""
+    try:
+        return strategies.detect(sym)
+    except Exception as e:
+        print(f"[warn] {sym} 策略因子失败: {e}")
+        return []
+
+
+def decide(score: float, spot: dict, pool: list) -> list:
     rows = []
-    for s in STOCKS:
+    ff = fund_factor_extra(dt.date.today().isoformat())
+    env = me.market_env(dt.date.today().isoformat())  # 大盘环境，None=数据不可用不压制
+    for s in pool:
         sym = s["symbol"]
         if sym not in spot:
             rows.append({"date": dt.date.today().isoformat(), "stock": sym,
@@ -66,9 +93,12 @@ def decide(score: float, spot: dict) -> list:
             continue
         change = spot.get(sym, 0.0)
         m, patterns = tech_factor(sym)
+        strats = strategy_factor(sym)
         tech_note = indicators.describe(m) if m.get("ok") else (m.get("reason") or "技术面跳过")
         if patterns:
             tech_note += " | 形态: " + "/".join(patterns)
+        if strats:
+            tech_note += " | 策略: " + "/".join(strats)
         if score > SENTI_BUY_THRESHOLD and change > 0:
             signal = "buy"
             predict = "up"
@@ -77,6 +107,14 @@ def decide(score: float, spot: dict) -> list:
             if m.get("ok") and m.get("ma_bullish"):
                 confidence = min(1.0, confidence + 0.1)  # 均线多头共振小幅加成
                 reason += "（均线多头共振）"
+            if strats:
+                bonus = min(0.1, 0.02 * len(strats))  # 策略命中每条 +0.02，封顶 +0.1
+                confidence = min(1.0, confidence + bonus)
+                reason += "（策略命中）"
+            signal, confidence, score, soft_note = me.guard(env, signal, confidence, score)
+            if soft_note:
+                predict = "flat"
+                reason += f"（{soft_note}）"
         elif score < SENTI_SELL_THRESHOLD:
             signal = "sell"
             predict = "down"
@@ -98,7 +136,13 @@ def decide(score: float, spot: dict) -> list:
             signal = "hold"
             predict = "flat"
             reason = f"熔断冷却中({cb.status_text()})，暂停交易"
+        if ff.get("conf"):
+            confidence = min(1.0, max(0.0, confidence + ff["conf"]))
         reason += f" | {tech_note}"
+        if ff.get("label"):
+            reason += f" | 资金面: {ff['label']}"
+        if env:
+            reason += f" | 市场: {env['note']}"
         rows.append({"date": dt.date.today().isoformat(), "stock": sym,
                      "signal": signal, "leverage": leverage,
                      "predict": predict, "confidence": round(confidence, 4),
@@ -110,7 +154,8 @@ def main(date_str=None):
     date_str = date_str or dt.date.today().isoformat()
     senti = pd.read_csv(DATA_DIR / "daily_sentiment.csv", encoding="utf-8-sig")
     last = senti.iloc[-1]
-    rows = decide(float(last["senti_score"]), fetch_spot())
+    pool = select_stock.load_pool(date_str)
+    rows = decide(float(last["senti_score"]), fetch_spot(pool), pool)
     out = DATA_DIR / f"decision_{date_str}.csv"
     pd.DataFrame(rows).to_csv(out, index=False, encoding="utf-8-sig")
     print(f"[ok] 决策 {len(rows)} 条 → {out}")
@@ -119,4 +164,11 @@ def main(date_str=None):
 
 
 if __name__ == "__main__":
-    main(sys.argv[1] if len(sys.argv) > 1 else None)
+    args = sys.argv[1:]
+    date_str = None
+    if args:
+        if args[0] == "--date" and len(args) > 1:
+            date_str = args[1]
+        else:
+            date_str = args[0]
+    main(date_str)

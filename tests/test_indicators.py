@@ -56,25 +56,27 @@ def main() -> int:
     check("连续上涨RSI超买", rsi_up and rsi_up["overbought"] is True,
           f"rsi={rsi_up['rsi']:.1f}" if rsi_up else "")
 
-    # --- 形态：构造锤头线（下跌后长下影）---
+    # --- 形态：构造锤头线（talib 0.6.4：实体<前10根实体均值、长下影、
+    # 短上影、实体贴近前一日低点；前置窄幅阴线 + 尾根长下影）---
     import datetime as dt2
     hammer_rows = []
-    c = 100.0
-    for i in range(30):
-        c -= 0.5
+    for i in range(11):
+        o, h, l, c = 100 - 0.1 * i, 100.2 - 0.1 * i, 99.2 - 0.1 * i, 99.5 - 0.1 * i
         hammer_rows.append((dt2.date(2026, 3, 1) + dt2.timedelta(days=i),
-                            c + 0.2, c + 0.4, c - 0.2, c))
-    hi = len(hammer_rows) - 1
-    hammer_rows[hi] = (hammer_rows[hi][0], 95.0, 96.0, 90.0, 95.5)  # 长下影小实体
+                            o, h, l, c))
+    hammer_rows.append((dt2.date(2026, 3, 12), 98.2, 98.55, 93.2, 98.5))
     pats = kline_patterns.detect(_ohlc(hammer_rows))
-    check("锤头线识别", "锤头线" in pats, str(pats))
+    check("锤头线识别", "锤头" in pats, str(pats))
 
-    # --- 形态：构造十字星 ---
-    doji_rows = list(hammer_rows[:-1])
+    # --- 形态：构造十字星（极窄实体的尾根，talib 判为长脚十字/十字）---
+    doji_rows = []
+    for i in range(15):
+        doji_rows.append((dt2.date(2026, 3, 1) + dt2.timedelta(days=i),
+                          100.0, 100.5, 99.5, 100.0))
     last = doji_rows[-1]
-    doji_rows.append((last[0], 90.0, 90.6, 89.5, 90.1))  # 实体0.1/振幅1.1<10%
+    doji_rows.append((last[0], 100.0, 100.6, 99.5, 100.02))  # 实体0.02/振幅1.1
     pats = kline_patterns.detect(_ohlc(doji_rows))
-    check("十字星识别", "十字星" in pats, str(pats))
+    check("十字星识别", "十字" in pats and "长脚十字" in pats, str(pats))
 
     # --- 形态：空表与短序列边界 ---
     check("空表返回[]", kline_patterns.detect(pd.DataFrame()) == [])

@@ -1,4 +1,4 @@
-"""统一测试入口：python tests/run_tests.py"""
+﻿"""缁熶竴娴嬭瘯鍏ュ彛锛歱ython tests/run_tests.py"""
 import sys
 from pathlib import Path
 
@@ -9,6 +9,14 @@ import test_trading
 import test_circuit
 import test_indicators
 import test_report_email
+import test_fund_flow
+import test_cyq
+import test_net_guard
+import test_daily_report
+import test_strategies
+import test_market_env
+import test_select_stock
+import test_telegram
 
 
 def main() -> int:
@@ -18,6 +26,14 @@ def main() -> int:
         ("circuit", test_circuit.main),
         ("indicators", test_indicators.main),
         ("email", test_report_email.main),
+        ("fund_flow", test_fund_flow.main),
+        ("cyq", test_cyq.main),
+        ("net_guard", test_net_guard.main),
+        ("daily_report", test_daily_report.main),
+        ("strategies", test_strategies.main),
+        ("market_env", test_market_env.main),
+        ("select_stock", test_select_stock.main),
+        ("telegram", test_telegram.main),
     ]
     total_fail = 0
     for name, fn in suites:
@@ -26,7 +42,7 @@ def main() -> int:
             rc = fn()
         except Exception as e:
             rc = 1
-            print(f"[ERROR] {name} 异常: {e}")
+            print(f"[ERROR] {name} 寮傚父: {e}")
         total_fail += rc
         print()
     if total_fail:

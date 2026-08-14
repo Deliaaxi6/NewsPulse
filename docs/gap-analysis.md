@@ -54,9 +54,19 @@
 
 ## 待办缺陷（未实施）
 
-### G6. 无资金面维度
+### G6. 无资金面维度 → 已实施（2026-08-13）
 - 现状：只用新闻情绪+涨跌幅
 - 参照：astock-watch 主力资金流评分（阶段3可选）
+- **备选数据源评估（2026-08-13）**：adata（1nchaos/adata，pip install adata）专注 A 股量化数据 SDK，多数据源（同花顺/东财/百度股市通/腾讯/新浪）自动切换 + 动态代理：
+
+**已实施（2026-08-13，方案：辅助因子不改主规则 + 宁缺毋假）**：
+- `src/fund_flow.py` 新建：资金面辅助因子，仅微调 confidence（±0.05）与 reason，不改变买卖主规则
+  - 两融余额：`adata.sentiment.securities_margin(start_date=...)`（东财源，需带日期参数否则空；披露滞后约一周）；近5日均值 vs 前5日均值，±1% 阈值判 回升/回落/平稳（`margin_trend`）
+  - 北向资金：`sentiment.north.north_flow()` **实测返回全 0**——2024-08 起沪深港通每日北向净买入已停止披露（真实市场变化，非接口 bug）；宁缺毋假，标注 unavailable 不硬造数据
+  - 交易日历：`stock.info.trade_calendar()`（trade_status 1=开市）→ `is_trading_day()`；`fetch_news.main()` 早退防空跑
+  - 多源行情降级：`sim_account.latest_quote()` 降级链 东财快照→新浪日K→**腾讯分时**（`adata.stock.market.qq_market.get_market_bar()`，实测 4145 行可用，仅价格无涨跌幅 pct=None；涨停/跌停/一字板/预测校验均已做 None 安全）
+- 测试：`tests/test_fund_flow.py` 11 用例（趋势/边界/北向/组合/日历），63/63 全绿；run_all 实测资金面摘要生效（"两融余额回升+1.70%; 资金面部分数据缺失跳过"）；回测回归 0 交易无变化
+- 局限：无新闻接口（不替代 fetch_news）；`list_market_current()` 多源聚合在本机实测不可用（0 行）；akshare 继续管新闻
 
 ### G7. 报告无交互图表
 - 现状：纯表格 HTML

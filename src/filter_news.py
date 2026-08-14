@@ -126,11 +126,21 @@ def main(date_str=None):
     df = pd.read_csv(src, encoding="utf-8-sig")
     df = classify(df)
     summary = summarize(df, date_str)
-    pd.DataFrame([summary]).to_csv(
-        DATA_DIR / "daily_sentiment.csv", index=False,
-        encoding="utf-8-sig", mode="a", header=not (DATA_DIR / "daily_sentiment.csv").exists())
+    out = DATA_DIR / "daily_sentiment.csv"
+    old = pd.read_csv(out, encoding="utf-8-sig") if out.exists() else pd.DataFrame()
+    if not old.empty:
+        old = old[old["date"] != date_str]  # UPSERT 语义：同日重跑只保留最新一条
+    new = pd.concat([old, pd.DataFrame([summary])], ignore_index=True)
+    new.to_csv(out, index=False, encoding="utf-8-sig")
     print(f"[ok] 情绪分={summary['senti_score']} 利{summary['pos_cnt']}/空{summary['neg_cnt']}/中{summary['neutral_cnt']}")
 
 
 if __name__ == "__main__":
-    main(sys.argv[1] if len(sys.argv) > 1 else None)
+    args = sys.argv[1:]
+    date_str = None
+    if args:
+        if args[0] == "--date" and len(args) > 1:
+            date_str = args[1]
+        else:
+            date_str = args[0]
+    main(date_str)

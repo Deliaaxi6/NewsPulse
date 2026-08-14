@@ -7,11 +7,13 @@ import filter_news
 import decision
 import sim_account
 import daily_report
+import select_stock
 
 
 def main():
     date_str = dt.date.today().isoformat()
     print(f"=== NewsPulse demo {date_str} ===")
+    select_stock.main(date_str)
     fetch_news.main(date_str)
     filter_news.main(date_str)
     decision.main(date_str)

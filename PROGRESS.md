@@ -16,6 +16,7 @@
 
 ### 当前任务
 - Phase 1 收尾：git init ✅ / tests 目录 ✅ / ruff 检查 ⏳（本机未装 ruff，待装或部署时执行）
+- G6 资金面（adata）✅ / InStock 融入进行中（筹码分布 ✅ → 多代理+Cookie ✅ → 形态61种 ✅ → 策略模板 → 综合选股）
 
 ## Phase 2 (重要)
 
@@ -32,6 +33,70 @@
 ---
 
 ## 会话日志（从设计阶段开始记录）
+
+### 2026-08-13 — 前端预览页升级：Chart.js dashboard 模板（GitHub 拉取改造）
+- ✅ 选型：GitHub 开源单文件模板 KPI_Analyzer_Dashboard（暗色主题+KPI卡片+趋势图），克隆至 Temp\opencode\ 供改造参考（不并入项目）；备选 IDV-App 一并拉取对比
+- ✅ 依赖本地化（无 CDN 依赖，离线可用）：Chart.js 4.4.7（205KB）+ chartjs-plugin-annotation 3.0.1（34KB）→ `src/assets/`；模板的 xlsx（Excel 导入）功能剔除
+- ✅ src/daily_report.py 重构：PAGE 换暗色 dashboard（KPI 卡片×4：情绪分/新闻量/总资产/决策数 + 3 图：情绪趋势折线（≥7天加7日均线）/新闻量柱状/情绪分布环形 + 原 6 节表格保留）；数据以 JSON 注入（`__CHART_JSON__` 占位符 replace，避免 format 大括号转义）；新增 chart_data()/score_color()（A股红涨绿跌）
+- ✅ 修复 subprocess GBK 解码异常：邮件脚本 UTF-8 中文输出在 text=True 下按 GBK 解码崩溃 → encoding='utf-8', errors='replace'
+- ✅ 数据卫生：daily_sentiment.csv 存量 7 行同日 → 收拢为 1 行（取当日最后一条）；chart_data() 按 date 去重防趋势图重复点
+- ✅ 测试 13/13 新增（资源存在/模板元素/图表结构/去重/占位符残留），全量回归 ALL PASSED；报告 9755B 生成 + 邮件推送正常
+- 📌 未处理：run_all 每次运行向 daily_sentiment 追加同日记录（写入侧去重留待后续任务）
+- 📌 下一步：InStock 融入「综合选股」
+
+### 2026-08-13 — InStock 融入：经典策略模板（core/strategy 10 策略）完成
+- ✅ src/strategies.py 新建（约 280 行）：10 策略逐条对照 InStock 源码（instock/core/strategy/*.py，2023-03 版）转写——海龟突破(turtle_trade)/持续上涨(keep_increasing)/放量上涨(enter)/平台突破(breakthrough_platform)/回踩年线(backtrace_ma250)/高潮跌停(climax_limitdown)/高紧旗形(high_tight_flag)/低波动启动(low_atr)/无大跌回踩(low_backtrace_increase)/停机坪(parking_apron)；数据不足或行情失败宁缺毋假返回 False
+- ✅ 关键阈值照源码核对：放量上涨 p_change≥2%/阳线/成交额≥2亿/量比≥2；跌停<-9.5% 且量比≥4；回踩年线≥250日+回踩距最高10-50天+量比>2+回撤<0.8；海龟=末收盘≥窗口最高；low_atr 振幅比值>1.1（110% 振幅）；停机坪=涨停后3日横盘±3% 且涨停日须满足海龟（全量 origin_data，见 bug 修复）
+- ✅ fetch_kline：新浪日K（net_guard 降级链）≥300 天含 volume/amount，p_change 缺失时自行计算（indicators 120 天无 volume → 策略独立拉取）
+- ✅ src/decision.py 集成：strategy_factor(sym) + reason 追加"| 策略: X/Y" + buy 时每条 +0.02 confidence 封顶 +0.1
+- ✅ 修复转写 bug 2 处：keep_increasing 须先整 df rolling(30) 再 dropna+tail(30)（原只在 tail 上 rolling 全 NaN）；parking_apron 的 turtle_trade 须基于全量 origin_data 截止涨停日（原误用 tail(15) 窗口内前段，导致该策略永远不命中）
+- ✅ tests/test_strategies.py 新建 32 用例（命中/未命中/10 策略短 df 边界/缺列不崩溃）挂载 run_tests.py；全量回归 10 suite ALL PASSED
+- ✅ 实测 decision 2026-08-13：600519 命中「策略: 平台突破」，其余宁缺毋假；东财快照失败自动降级新浪日K
+- 📌 下一步：InStock 融入「综合选股」（全市场扫描选标的，取代硬编码 STOCKS 观察池）
+
+### 2026-08-13 — DSA 参考项落地：大盘护栏 + 推送降噪 + 幂等存储
+- ✅ 背景：调研 daily_stock_analysis（62.7k stars，LLM 付费驱动）后按用户选择落地 1/3/4 三项（否定词检测评估为不适用：NewsPulse 关键词表无"买入/加仓"动作词，现有 NEGATION 体系已覆盖否认翻转；多市场/Web 工作台/Agent 问股不适用）
+- ✅ src/market_env.py 新建（大盘环境护栏，参考 daily_market_context_guardrail）：新浪指数日K降级链（东财指数快照本机被拦截）+ 乐咕涨跌家数（长表 item/value，模糊匹配 上涨/下跌/涨停/跌停）→ 弱势判定（任一指数≤-1.5% 或 跌家/涨家≥2）；guard() 弱势 buy→hold、情绪分/置信度封顶 0.5、reason 追加"市场弱势已软化"；数据全失败返回 None 宁缺毋假
+- ✅ src/decision.py 集成：decide() 调 market_env，buy 分支后 guard（predict 同步 flat），reason 追加"| 市场: …"；杠杆计算用软化后分数（弱势自动降杠杆）
+- ✅ src/daily_report.py 推送降噪（参考 notification_noise）：内容指纹 md5(日期+文件内容) 同日同内容跳过重发；标记文件读写失败 fail-open 照常推送；修正过程：首版用 mtime+size 指纹被"报告每次重生成"击穿，改内容级指纹
+- ✅ src/filter_news.py 幂等：daily_sentiment 写入侧按 date UPSERT（同日重跑只保留最新一条），解决 demo 每日追加同日行问题
+- ✅ 实测：decision 2026-08-13 reason 含"市场: …（弱势，信号软化处理）"（当日指数+0.32%但跌4041/涨1085，家数判定捕获指数失真行情）；filter_news 重跑两次同日仅 1 行；daily_report 第二次运行"已推送过，跳过重复推送"
+- ✅ 测试：test_market_env.py 新建 13 用例（weak 判定/guard/除零/None）；test_daily_report.py 15/15（+4 降噪用例）；全量回归 11 suite ALL PASSED
+- ✅ 未处理事项收尾（用户确认范围）：net_guard 源级熔断 + decision.py --date 参数统一
+  - net_guard：单源连续失败 3 次 → 熔断 300s 跳过（DSA CircuitBreaker 参考）；修复 2 处实现 bug：_is_cooled 过期清理 pop 副作用导致计数被清空（改纯查询）、_record_fail 冷却期重建计数；test_net_guard 19/19（+5 熔断用例：3 次熔断/冷却跳过走次源/成功清除/冷却过期恢复/计数隔离）
+  - decision.py：__main__ 支持 `--date 2026-08-13`（兼容位置参数），与 CLAUDE.md 文档统一；实测写入 decision_2026-08-13.csv
+  - 全量回归 11 suite ALL PASSED；fetch_news/filter_news/sim_account/daily_report 同类位置参数问题留待后续统一
+- ✅ InStock 融入「综合选股」（全市场扫描选标的，取代硬编码 STOCKS 观察池，用户确认：涨停池口径 + 完全替换）
+  - 新增 src/select_stock.py：东财涨停池（stock_zt_pool_em，T-1 基准日回退 7 天）→ 按连板数/封板资金排序取前 MAX_SCAN=20 → 逐只 strategies.detect（10 策略模板）→ data/select_YYYY-MM-DD.csv（code/symbol/name/lbc/seal_amount/strategies/score）；空池/接口失败 fail-open 写空 CSV；load_pool() dtype str 保前导 0
+  - 生产链路切换：fetch_news（空池仅抓市场新闻）/decision（decide/fetch_spot 接收 pool）/sim_account（报价池=观察池∪实际持仓，修复 0 股持仓混入）/daily_report（names 映射+cyq 行用池）/run_all（选股前置步骤）；config.STOCKS 保留为 backtest 回测基准池（加注释）
+  - tests/test_select_stock.py 16/16（排序/前导0/MAX_SCAN 截断/空池 fail-open/接口异常/非交易日/load_pool 缺文件）；全量回归 12 suite ALL PASSED
+  - 实测 2026-08-14 全链路：选股 20 只（涨停池 08-13，策略命中如百花医药 7连板）→ 决策 20 条（东财快照失败自动降级新浪）→ 撮合（一字板屏蔽正常）→ 报告+邮件
+- ✅ 生产链路 4 模块 CLI 参数统一（fetch_news/filter_news/sim_account/daily_report 均支持 `--date YYYY-MM-DD`，兼容位置参数，与 decision.py 一致）；实测 fetch_news --date 2026-08-14 抓 371 条（含 20 只动态池个股新闻）+ filter_news --date 情绪 0.097；回归 12 suite ALL PASSED
+- ✅ 熔断审查修复（缺陷1严重+缺陷3审计；缺陷2排期）：触发杠杆改为 max(当日决策, 持仓杠杆)（_top_leverage，持仓期 hold 回撤33%可触发）；持仓买入记录真实杠杆、portfolio 行 leverage 不再恒 1；熔断事件（触发/冷却推进/恢复）落盘 logs/circuit.log；test_trading +3 用例（13/13），回归 12 suite ALL PASSED
+- ✅ 熔断缺陷2修复（repeat_cool 窗口改交易日口径）：新增 fund_flow.trading_days_between()（adata 交易日历，日历不可用返回 None）；circuit_breaker._is_repeat() 交易日≤10 判重复，日历不可用降级自然日（fail-open）；test_circuit +4（14/14）、test_fund_flow +4（含倒序/跨休市/空日历），回归 12 suite ALL PASSED
+- ✅ Telegram 推送接入（Phase 3 基础版）：新增 src/telegram_push.py（sendMessage + 日报摘要 HTML，代理默认走本机 Clash 127.0.0.1:7897，实测 api.telegram.org 经此可达）；config 新增 TELEGRAM_BOT_TOKEN/CHAT_ID/API/PROXY（环境变量注入，未配置 fail-open 跳过）；daily_report 报告生成后追加推送；requirements 显式声明 requests；test_telegram 8/8，回归 13 suite ALL PASSED
+- ✅ Telegram 推送实测通过：bot newspulse_daily_bot（token 已配用户环境变量 NEWSPULSE_TG_TOKEN），chat_id 6359097393（NEWSPULSE_TG_CHAT_ID），日报摘要 sendMessage 推送成功；服务器部署时改走 secrets.json 注入
+- 📌 下一步：情绪分周复盘（需数据积累）/ 日报推送对接定时任务
+
+### 2026-08-13 — InStock 融入：K线形态扩展至 61 种（talib 引擎）
+- ✅ 引擎重写 src/kline_patterns.py：首选 pandas-ta `cdl_pattern(name='all')`（底层 TA-Lib C 库 0.6.4），61 种 CDL 形态全量识别；TA-Lib 缺失时降级纯 pandas 8 种 `_detect_legacy`（宁缺毋假）
+- ✅ TALIB_CN_MAP 中文名照 InStock（instock/core/tablestructure.py 417-533 段）逐条核对；实测 62 列（61 talib + pandas-ta 2 特列）**全部映射、无 CDL_ 列名泄漏**
+- ✅ 补充 2 个 pandas-ta 特有列：CDL_DOJI_10_0.1→"十字"（doji 参数化变体）、CDL_INSIDE→"母子线"（inside 内含线，HARAMI 同义）
+- ✅ 测试断言按 talib 0.6.4 实际行为重写：旧"锤头"构造被判为梯底（源码核对 4 条件：实体<前10根实体均值 / 下影>实体 / 上影<前10range×0.1 / 实体贴近前日低点），已替换为逐条满足的 HAMMER 构造（实测命中）；十字星改测极窄 doji（实测 `['十字','长脚十字','黄包车夫']`）
+- ✅ 回归：indicators 16/16，全量 ALL PASSED；compileall src+tests 通过；ruff 未安装（沿用待部署时执行）
+- 📌 下一步：InStock 融入「经典策略模板」（放量上涨/回踩年线/海龟等）
+
+### 2026-08-13 — G6 资金面 + 交易日历 + 腾讯降级（adata 融入）完成
+- ✅ 引入 adata 2.9.5（pip 已装，requirements.txt 已登记）——用户授权后安装
+- ✅ src/fund_flow.py 新建：两融余额趋势（±1% 阈值判 回升/回落/平稳）+ 北向资金信号 + 交易日历；全部失败不阻断（宁缺毋假）
+- ✅ 实测发现：北向资金每日净买入 **2024-08 起官方停发**（north_flow 全 0），宁缺毋假标注 unavailable 不硬造；两融 securities_margin 需带 start_date 否则空（披露滞后约一周）
+- ✅ src/decision.py 集成 G6：资金面辅助因子（confidence ±0.05 + reason 摘要），不改买卖主规则/杠杆/熔断
+- ✅ src/fetch_news.py：交易日历判断非开市日早退；日历不可用仍继续爬取（避免误判）
+- ✅ src/sim_account.py：行情降级链升级 东财→新浪→**腾讯分时**（adata qq_market，实测可用仅价格 pct=None）；一字板/涨跌停/预测校验全部 pct=None 安全
+- ✅ 测试 11/11 新增，回归 63/63 全绿；compileall 通过
+- ✅ run_all 实测：资金面摘要真实生效（"两融余额回升+1.70%; 资金面部分数据缺失跳过"）
+- ⚠️ 排查回测 0→4 笔假象：根因是 data/ 残留 3 个模拟新闻文件（news_2026-08-10/11/12，非本次代码回归），已清理，回测恢复基线 0 交易
+- 📌 下一步：InStock 融入（筹码分布/多代理+Cookie/形态61种/策略模板/综合选股）
 
 ### 2026-08-13 — G8 技术指标 + K线形态 完成
 - ✅ src/indicators.py：MA/MACD/KDJ/RSI/BOLL 五指标（纯 pandas，无 talib）；analyze/describe；数据不足宁缺毋假

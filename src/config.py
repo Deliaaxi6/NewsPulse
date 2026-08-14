@@ -17,6 +17,15 @@ EMAIL_CONFIG = os.environ.get("NEWSPULSE_EMAIL_CONFIG", "")  # 服务器部署�
 EMAIL_TO = os.environ.get("NEWSPULSE_EMAIL_TO", "228396705@qq.com")
 EMAIL_CC = os.environ.get("NEWSPULSE_EMAIL_CC", "deliaaxi6@gmail.com")
 
+# Telegram 推送（Phase 3）：token/chat_id 从环境变量读取（服务器 secrets.json 注入），
+# 不硬编码不进 git；未配置则跳过推送（fail-open）。走本地代理出墙（默认 Clash 7897）。
+TELEGRAM_BOT_TOKEN = os.environ.get("NEWSPULSE_TG_TOKEN", "")
+TELEGRAM_CHAT_ID = os.environ.get("NEWSPULSE_TG_CHAT_ID", "")
+TELEGRAM_API_BASE = os.environ.get("NEWSPULSE_TG_API", "https://api.telegram.org")
+TELEGRAM_PROXY = os.environ.get("NEWSPULSE_TG_PROXY", "http://127.0.0.1:7897")
+
+# 回测基准池（backtest.py 专用）：生产链路观察池已切换为 select_stock 动态选股
+# （data/select_YYYY-MM-DD.csv，涨停池+策略模板），不再从本常量取每日标的。
 STOCKS = [
     {"code": "600519.XSHG", "symbol": "600519", "name": "贵州茅台"},
     {"code": "000858.XSHE", "symbol": "000858", "name": "五粮液"},

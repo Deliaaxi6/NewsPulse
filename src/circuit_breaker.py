@@ -12,9 +12,11 @@ import datetime as dt
 
 import pandas as pd
 
-from config import DATA_DIR
+from config import DATA_DIR, LOGS_DIR
+from fund_flow import trading_days_between
 
 STATE_FILE = DATA_DIR / "circuit_state.json"
+LOG_FILE = LOGS_DIR / "circuit.log"
 CIRCUIT_TRIGGER_RATIO = 0.33       # 3倍杠杆下市值跌超33%触发
 COOLDOWN_DAYS = 5                  # 基础冷却期（交易日）
 RECOVERY_SENTI_DAYS = 2            # 恢复需连续情绪转正日数
@@ -38,6 +40,25 @@ def save_state(state: dict):
                           encoding="utf-8")
 
 
+def _log(msg: str):
+    """熔断事件审计日志（触发/恢复/冷却推进），追加写 logs/circuit.log。"""
+    ts = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        with open(LOG_FILE, "a", encoding="utf-8") as f:
+            f.write(f"{ts} {msg}\n")
+    except Exception as e:
+        print(f"[warn] 熔断日志写入失败: {e}")
+
+
+def _is_repeat(last_cool_date: str, today: str) -> bool:
+    """两次熔断是否落在防循环窗口内（交易日口径，日历不可用降级自然日）。"""
+    span = trading_days_between(last_cool_date, today)
+    if span is not None:
+        return span <= STATE_COOLDOWN_WINDOW
+    return (dt.date.fromisoformat(today) -
+            dt.date.fromisoformat(last_cool_date)).days <= STATE_COOLDOWN_WINDOW
+
+
 def check_circuit(today, total_value, peak_value, leverage):
     """每日收盘后调用。触发熔断或推进冷却/恢复。返回事件列表。"""
     state = load_state()
@@ -49,15 +70,16 @@ def check_circuit(today, total_value, peak_value, leverage):
             state["cool_start"] = today
             state["recovered_days"] = 0
             state["pos_senti_days"] = 0
-            if state["last_cool_date"] and \
-                    (dt.date.fromisoformat(today) - dt.date.fromisoformat(state["last_cool_date"])).days <= STATE_COOLDOWN_WINDOW:
+            if state["last_cool_date"] and _is_repeat(state["last_cool_date"], today):
                 state["repeat_cool"] += 1
             else:
                 state["repeat_cool"] = 1
             state["last_cool_date"] = today
+            _log(f"熔断触发: 3倍杠杆下回撤{(peak_value-total_value)/peak_value:.1%}≥33% (repeat_cool={state['repeat_cool']})")
             events.append(f"熔断触发: 3倍杠杆下回撤{1-(total_value/peak_value if peak_value else 0):.1%}≥33%")
     else:
         state["recovered_days"] += 1
+        _log(f"冷却推进 {state['recovered_days']}/{cooling_days(state)}日, 连续情绪转正{state['pos_senti_days']}/{RECOVERY_SENTI_DAYS}日")
     save_state(state)
     return events
 
@@ -94,6 +116,7 @@ def try_recover(today) -> bool:
         state["recovered_days"] = 0
         state["pos_senti_days"] = 0
         save_state(state)
+        _log("恢复: 冷却条件满足，恢复正常交易")
         return True
     return False
 

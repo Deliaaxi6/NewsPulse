@@ -86,9 +86,18 @@ def main() -> int:
         ok = got == expect
         fails += 0 if ok else 1
         print(f"[{'OK' if ok else 'FAIL'}] 一字板 {note:12s} -> {got} (expect {expect})")
+    for decisions, positions, expect, note in [
+        ([{"leverage": 3}], {}, 3, "决策3倍持仓空"),
+        ([{"leverage": 1}], {"600519": {"leverage": 3}}, 3, "持仓期hold保持3倍敞口"),
+        ([], {}, 1, "无决策无持仓默认1倍"),
+    ]:
+        got = sim_account._top_leverage(decisions, positions)
+        ok = got == expect
+        fails += 0 if ok else 1
+        print(f"[{'OK' if ok else 'FAIL'}] 熔断杠杆 {note:14s} -> {got} (expect {expect})")
     with tempfile.TemporaryDirectory() as td:
         fails += test_predict_validation(Path(td))
-    print(f"trading: {10 - fails}/10 passed")
+    print(f"trading: {13 - fails}/13 passed")
     return 1 if fails else 0
 
 
