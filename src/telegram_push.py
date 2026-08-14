@@ -7,15 +7,19 @@
 - 失败仅告警不抛异常（与 G8/邮件推送 fail-open 风格一致）
 """
 import sys
+import time
 
 import requests
 
 from config import (TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID,
                     TELEGRAM_API_BASE, TELEGRAM_PROXY, TELEGRAM_CHANNEL)
 
+_MAX_ATTEMPTS = 3  # 网络/SSL 抖动重试（代理链路偶发 EOF）
+
 
 def send_text(text: str, token=None, chat_id=None, proxies=None, timeout=20) -> bool:
-    """发送文本消息。成功 True；未配置/失败 False（不抛异常）。"""
+    """发送文本消息。成功 True；未配置/失败 False（不抛异常）。
+    网络类异常（SSL/连接/超时）自动重试 2 次（间隔 2s/4s）；HTTP 业务错误不重试。"""
     token = token if token is not None else TELEGRAM_BOT_TOKEN
     chat_id = chat_id if chat_id is not None else TELEGRAM_CHAT_ID
     if not token or not chat_id:
@@ -27,14 +31,21 @@ def send_text(text: str, token=None, chat_id=None, proxies=None, timeout=20) -> 
     url = f"{TELEGRAM_API_BASE}/bot{token}/sendMessage"
     payload = {"chat_id": chat_id, "text": text, "parse_mode": "HTML",
                "disable_web_page_preview": True}
-    try:
-        r = requests.post(url, json=payload, proxies=proxies, timeout=timeout)
-        if r.status_code == 200 and r.json().get("ok"):
-            print("[ok] Telegram 推送成功")
-            return True
-        print(f"[warn] Telegram 推送失败: HTTP {r.status_code} {r.text[:200]}")
-    except Exception as e:
-        print(f"[warn] Telegram 推送异常: {e}")
+    last_exc = None
+    for attempt in range(_MAX_ATTEMPTS):
+        try:
+            r = requests.post(url, json=payload, proxies=proxies, timeout=timeout)
+            if r.status_code == 200 and r.json().get("ok"):
+                print("[ok] Telegram 推送成功")
+                return True
+            print(f"[warn] Telegram 推送失败: HTTP {r.status_code} {r.text[:200]}")
+            return False  # HTTP 业务失败不重试
+        except Exception as e:
+            last_exc = e
+            if attempt < _MAX_ATTEMPTS - 1:
+                print(f"[warn] Telegram 推送异常（{attempt + 1}/{_MAX_ATTEMPTS - 1} 次重试）: {e}")
+                time.sleep(2 * (attempt + 1))
+    print(f"[warn] Telegram 推送异常（重试{_MAX_ATTEMPTS}次仍失败）: {last_exc}")
     return False
 
 

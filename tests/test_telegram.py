@@ -57,10 +57,31 @@ def main() -> int:
 
     with mock.patch("telegram_push.TELEGRAM_BOT_TOKEN", "t1"), \
          mock.patch("telegram_push.TELEGRAM_CHAT_ID", "c1"), \
+         mock.patch("telegram_push.time.sleep"), \
+         mock.patch("telegram_push.requests.post",
+                    side_effect=[ConnectionError("SSL EOF"), ConnectionError("SSL EOF"),
+                                 _resp(200, True)]) as post:
+        ok = tp.send_text("hi")
+        check("SSL 抖动重试 2 次后成功", ok is True and post.call_count == 3,
+              f"calls={post.call_count}")
+
+    with mock.patch("telegram_push.TELEGRAM_BOT_TOKEN", "t1"), \
+         mock.patch("telegram_push.TELEGRAM_CHAT_ID", "c1"), \
+         mock.patch("telegram_push.time.sleep"), \
          mock.patch("telegram_push.requests.post",
                     side_effect=ConnectionError("timeout")) as post:
         ok = tp.send_text("hi")
-        check("网络异常返回 False 不抛异常", ok is False)
+        check("网络异常重试后返回 False 不抛异常", ok is False and post.call_count == 3,
+              f"calls={post.call_count}")
+
+    with mock.patch("telegram_push.TELEGRAM_BOT_TOKEN", "t1"), \
+         mock.patch("telegram_push.TELEGRAM_CHAT_ID", "c1"), \
+         mock.patch("telegram_push.time.sleep"), \
+         mock.patch("telegram_push.requests.post",
+                    return_value=_resp(500)) as post:
+        ok = tp.send_text("hi")
+        check("HTTP 500 不重试", ok is False and post.call_count == 1,
+              f"calls={post.call_count}")
 
     with mock.patch("telegram_push.TELEGRAM_BOT_TOKEN", "t1"), \
          mock.patch("telegram_push.TELEGRAM_CHAT_ID", "c1"), \
@@ -95,7 +116,7 @@ def main() -> int:
         ok = tp.send_to_channel("hi")
         check("频道推送失败返回 False 不抛异常", ok is False)
 
-    print(f"telegram: {11 - fails}/11 passed")
+    print(f"telegram: {14 - fails}/14 passed")
     return 1 if fails else 0
 
 
