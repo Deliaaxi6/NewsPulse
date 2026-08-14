@@ -26,13 +26,31 @@
 
 ## Phase 3 (可选)
 
-- [ ] Telegram 频道接入（需境外跳板评估）
+- [x] Telegram 频道接入（服务器 mihomo 代理已通，2026-08-14 实测双通道推送）
 - [x] 大模型新闻分类升级（DeepSeek API）— 已实测：key 环境变量 NEWSPULSE_DS_KEY 已配置，2026-08-14 全量 371 条真实分类成功，同日重跑缓存幂等零调用
 - [x] 情绪分+机器学习联合决策 — 框架就绪（纯 numpy 逻辑回归，数据 ≥20 交易日自动启用），当前数据不足自动跳过
 
 ---
 
 ## 会话日志（从设计阶段开始记录）
+
+### 2026-08-14 — 方案 A/B/C 落地（个股止损 / 个股情绪 / 追涨修复）+ 服务器环境对齐
+- ✅ 方案 A 个股止损：`STOP_LOSS_RATIO=0.08` + `STOP_COOLDOWN_DAYS=5`（config.py）；sim_account 新增 `_stop_cooled()`/`stop_loss_signal()`，持仓成本回撤≥8% 生成止损卖出（涨停不卖/一字板保护沿用），卖后写 stop_loss_log.csv 且 5 个交易日内禁止再买该股；test_trading 20/20（回撤9%触发/7%不触发/无行情跳过/空仓跳过/零成本跳过/冷却窗口 4 例）
+- ✅ 方案 B 个股情绪：filter_news 新增 `stock_sentiment()`（related_stocks 6 位代码且在当日选股池内才分组，市场新闻 URL 不参与）写 `data/stock_sentiment_{date}.csv`；decision 新增 `stock_senti_map()`，个股新闻 ≥3 条（`STOCK_SENTI_MIN`）时用个股情绪覆盖市场情绪参与信号判定与置信度（`w=min(1, 条数/10)`），杠杆仍用市场分，reason 追加"| 个股情绪: +x.xx(N条)"；tests/test_stock_sentiment.py 新建 20/20，run_tests.py 注册第 17 套件
+- ✅ 方案 C 追涨修复：select_stock 新增 `_filter_market_df()`（非ST/涨幅0~9.9%/量比>1.5/成交额>2亿）+ `_market_pool()`（东财 spot_em 全市场一次请求，失败降级纯涨停池）+ `_merge_pools()`（涨停池优先去重排序，写 CSV 剔除内部 source 列）；decision 新增 `CALLBACK_STRATS={"回踩年线","低波动启动","无大跌回踩"}` + `_is_callback()`（回调策略不要求当日上涨，reason"回调企稳"）+ `OVERBOUGHT_LBC=3`/`RSI_OVERBOUGHT=80` + `_overbought()`（buy 后 confidence-0.1 +"（超买降权）"）；test_select_stock 增补过滤/合并用例
+- ✅ 服务器环境对齐：pandas-ta 0.4.x 要求 Python≥3.12（服务器 py3.11 无可用版本，PyPI 旧版已 yank）→ kline_patterns 新增 `_detect_talib_direct()` 直调 TA-Lib 61 个 CDL 函数（无需 pandas-ta）；服务器 `pip install TA-Lib 0.6.8`（manylinux wheel 捆绑 C 库）；本地两路径输出一致，服务器 indicators 16/16
+- ✅ 验证：本地全量回归 17 suite ALL PASSED；服务器全量 17 suite ALL PASSED；服务器 run_all 实测——快照过滤失败降级纯涨停池（fail-open ✓）、个股情绪 20 只入库（000887 个股 -0.40 触发 sell 信号，覆盖市场 -0.05）、61 形态生效、报告+邮件+Telegram 推送成功
+- ✅ 提交：`27dba89`(A 止损) → `351ccea`(B 个股情绪) → `c42f21a`(C 追涨+talib 直调)
+- 📌 待办：全市场快照接口偶发 RemoteDisconnected（东财限流，已有降级链）；Telegram 偶发 SSL EOF（代理抖动，重试后成功）；止损信号需真实持仓后观察
+
+### 2026-08-14 — 服务器部署完成（101.96.196.187, CentOS 7）
+- ✅ 环境：Miniconda Python 3.11.9（/opt/miniconda3，glibc 2.17 无法 pip 装 pandas → conda install pandas/numpy 规避源码构建）；conda env `np`（Python 3.11.13 / pandas 2.3.2 / akshare 1.18.91 / adata 2.9.5）；项目上传 /opt/newspulse（含 email-notification 邮件脚本 + config.json chmod 600）
+- ✅ 密钥：/opt/newspulse/secrets.env（chmod 600）注入 TG token/chat_id/channel、NEWSPULSE_DS_KEY、邮件脚本路径、TG_PROXY=http://127.0.0.1:7897
+- ✅ 境外代理：机场订阅接口须带 Clash UA 才返回数据（verify_mode.htm 无 UA 时返回空）→ 本机下载 mihomo v1.19.29 compatible（旧 glibc）+ geoip.metadb/geosite.dat（服务器 GitHub 不可达，本机出墙下载上传）→ /opt/mihomo/config.yaml（mixed-port 7897，订阅原样）→ systemd 自启（mihomo.service active）；api.telegram.org 经代理 302 可达
+- ✅ Telegram 实测：send_text 私聊 + send_to_channel 频道双通道 OK（此前 404 为测试调用姿势错误——send_to_channel 签名 (text, token=None)，把频道 ID 误传为 text/token；生产 daily_report 单参调用正确，非代码 bug）
+- ✅ 全链路 run_all 实测：新闻 370 → LLM 分类全命中缓存（0 API 调用）→ 情绪 -0.0459（利0/空17/中353）→ 决策 20 条 hold 杠杆1倍（东财快照失败降级新浪 ✓）→ 撮合一字板屏蔽（fail-open ✓）→ 报告 report_2026-08-14.html 生成 + 邮件推送成功；portfolio.csv 100000 初始化
+- ✅ crontab：`5 9 * * 1-5` 工作日 9:05 全链路（set -a + secrets.env + np 解释器 → logs/cron.log）
+- 📌 待办：ML ≥20 交易日自动生效（数据积累中）；20 天预热期验证；情绪分-指数相关性周复盘；master→main 改名（可选）；mihomo 订阅到期需手动更新 config
 
 ### 2026-08-14 — Phase 3：DeepSeek 全量新闻分类 + ML 联合决策框架
 - ✅ src/llm_sentiment.py 新建（DeepSeek 全量新闻二次分类）：deepseek-v4-flash 非思考模式、temperature=0、strict JSON（bull/bear/neutral+confidence）；批处理 BATCH=15；同日按内容 md5 hash 缓存 data/llm_cache_{date}.json（同日重跑幂等零计费）；单批失败该批保留关键词规则、连续 3 批失败本次熔断；key 环境变量 NEWSPULSE_DS_KEY（未配置跳过，fail-open）
