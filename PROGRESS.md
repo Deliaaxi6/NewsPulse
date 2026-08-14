@@ -27,7 +27,7 @@
 ## Phase 3 (可选)
 
 - [ ] Telegram 频道接入（需境外跳板评估）
-- [x] 大模型新闻分类升级（DeepSeek API）— 代码/测试/降级就绪，待用户提供 API key（环境变量 NEWSPULSE_DS_KEY）后实测真实调用
+- [x] 大模型新闻分类升级（DeepSeek API）— 已实测：key 环境变量 NEWSPULSE_DS_KEY 已配置，2026-08-14 全量 371 条真实分类成功，同日重跑缓存幂等零调用
 - [x] 情绪分+机器学习联合决策 — 框架就绪（纯 numpy 逻辑回归，数据 ≥20 交易日自动启用），当前数据不足自动跳过
 
 ---
@@ -43,7 +43,8 @@
 - ✅ src/decision.py 集成：decide() 每日取一次 advice，intervene 时降 confidence 追加 reason（与 G6/G8 同级辅助因子）
 - ✅ tests/test_ml_advisor.py 新建 10 用例（无数据跳过/不足20天跳过/合成数据训练收敛/干预阈值/缓存复用/上涨市不干预/特征零值安全/缺文件fail-open/decision 集成干预与未启用），全过
 - ✅ 全量回归 15 suite ALL PASSED；真实链路：filter_news 无 key 降级正常（情绪 0.097 与历史一致，幂等）、ml_advisor 数据不足跳过、decision 2026-08-14 全 hold 正常
-- 📌 待办：用户提供 DeepSeek API key 后 setx NEWSPULSE_DS_KEY 实测真实调用；ML 需积累 ≥20 个交易日数据后自动生效；Telegram 频道接入（Phase 3 剩余项）
+- ✅ 真实调用联调（用户提供 key，setx NEWSPULSE_DS_KEY 持久化）：实测发现 v4-flash 默认思考模式导致两坑——① 不加 response_format 时输出自由文本；② reasoning.enabled=false 参数不生效，15 条/批思考耗尽 max_tokens=512 时 content 为空串致 JSON 解析失败。调参修复：max_tokens=4096 + reasoning_effort=low（省 ~35% tokens）+ response_format=json_object；实测 371 条全量分类成功（第一批偶发输出空数组，熔断计数被后续成功批重置，未误熔断），同日重跑 371 条全命中缓存零调用（幂等计费验证 ✓）
+- 📌 待办：ML 需积累 ≥20 个交易日数据后自动生效；Telegram 频道接入（Phase 3 剩余项）
 
 ### 2026-08-13 — 前端预览页升级：Chart.js dashboard 模板（GitHub 拉取改造）
 - ✅ 选型：GitHub 开源单文件模板 KPI_Analyzer_Dashboard（暗色主题+KPI卡片+趋势图），克隆至 Temp\opencode\ 供改造参考（不并入项目）；备选 IDV-App 一并拉取对比

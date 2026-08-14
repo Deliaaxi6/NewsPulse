@@ -58,7 +58,13 @@ def _call_api(batch_texts: list) -> list | None:
             {"role": "user", "content": json.dumps(batch_texts, ensure_ascii=False)},
         ],
         "temperature": 0,
-        "max_tokens": 512,
+        # 实测调参：v4-flash 默认思考模式，reasoning.enabled=false 不生效；
+        # 需 max_tokens 4096 且 reasoning_effort=low（比默认省 ~35% tokens），
+        # 否则思考耗尽 token 时 content 为空串导致 JSON 解析失败。
+        # 配合 response_format=json_object 保证严格 JSON 输出。
+        "max_tokens": 4096,
+        "reasoning_effort": "low",
+        "response_format": {"type": "json_object"},
     }
     r = requests.post(url, headers={"Authorization": f"Bearer {DEEPSEEK_API_KEY}"},
                       json=payload, timeout=60)
