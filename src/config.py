@@ -23,6 +23,8 @@ TELEGRAM_BOT_TOKEN = os.environ.get("NEWSPULSE_TG_TOKEN", "")
 TELEGRAM_CHAT_ID = os.environ.get("NEWSPULSE_TG_CHAT_ID", "")
 TELEGRAM_API_BASE = os.environ.get("NEWSPULSE_TG_API", "https://api.telegram.org")
 TELEGRAM_PROXY = os.environ.get("NEWSPULSE_TG_PROXY", "http://127.0.0.1:7897")
+# 频道推送（Phase 3）：@username 或频道 ID（负 ID），未配置则只推私聊/群聊 chat_id
+TELEGRAM_CHANNEL = os.environ.get("NEWSPULSE_TG_CHANNEL", "")
 
 # DeepSeek LLM 新闻分类（Phase 3）：key 从环境变量读取（不硬编码不进 git），
 # 未配置则跳过 LLM 分类（降级关键词规则）；api.deepseek.com 国内直连无需代理。

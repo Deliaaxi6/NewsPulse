@@ -1,4 +1,4 @@
-"""Telegram 推送回归测试（8 用例）：未配置跳过 / 成功 / HTTP失败 / 异常 / 代理 / 摘要格式。"""
+"""Telegram 推送回归测试（11 用例）：未配置跳过 / 成功 / HTTP失败 / 异常 / 代理 / 摘要格式 / 频道。"""
 import sys
 import unittest.mock as mock
 from pathlib import Path
@@ -77,7 +77,25 @@ def main() -> int:
     check("摘要含买入信号行",
           "买入信号" in s2 and "秦安股份" in s2 and "3倍" in s2 and "海龟突破" in s2, s2)
 
-    print(f"telegram: {8 - fails}/8 passed")
+    with mock.patch("telegram_push.TELEGRAM_CHANNEL", ""), \
+         mock.patch("telegram_push.requests.post") as post:
+        ok = tp.send_to_channel("hi")
+        check("频道未配置跳过不调API", ok is False and not post.called)
+
+    with mock.patch("telegram_push.TELEGRAM_CHANNEL", "@newspulse_channel"), \
+         mock.patch("telegram_push.TELEGRAM_BOT_TOKEN", "t1"), \
+         mock.patch("telegram_push.requests.post", return_value=_resp(200, True)) as post:
+        ok = tp.send_to_channel("hi")
+        check("频道已配置调用且 chat_id=频道",
+              ok is True and post.call_args[1]["json"]["chat_id"] == "@newspulse_channel")
+
+    with mock.patch("telegram_push.TELEGRAM_CHANNEL", "@newspulse_channel"), \
+         mock.patch("telegram_push.TELEGRAM_BOT_TOKEN", "t1"), \
+         mock.patch("telegram_push.requests.post", side_effect=ConnectionError("timeout")):
+        ok = tp.send_to_channel("hi")
+        check("频道推送失败返回 False 不抛异常", ok is False)
+
+    print(f"telegram: {11 - fails}/11 passed")
     return 1 if fails else 0
 
 

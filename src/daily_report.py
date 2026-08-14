@@ -300,6 +300,10 @@ def main(date_str=None):
         telegram_push.report_summary(date_str, score, int(last["total_news"]),
                                      int(last["pos_cnt"]), int(last["neg_cnt"]),
                                      assets, len(decisions), buys))
+    telegram_push.send_to_channel(
+        telegram_push.report_summary(date_str, score, int(last["total_news"]),
+                                     int(last["pos_cnt"]), int(last["neg_cnt"]),
+                                     assets, len(decisions), buys))
 
 
 if __name__ == "__main__":

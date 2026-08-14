@@ -11,7 +11,7 @@ import sys
 import requests
 
 from config import (TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID,
-                    TELEGRAM_API_BASE, TELEGRAM_PROXY)
+                    TELEGRAM_API_BASE, TELEGRAM_PROXY, TELEGRAM_CHANNEL)
 
 
 def send_text(text: str, token=None, chat_id=None, proxies=None, timeout=20) -> bool:
@@ -36,6 +36,16 @@ def send_text(text: str, token=None, chat_id=None, proxies=None, timeout=20) -> 
     except Exception as e:
         print(f"[warn] Telegram 推送异常: {e}")
     return False
+
+
+def send_to_channel(text: str, token=None, proxies=None, timeout=20) -> bool:
+    """推送消息到频道（NEWSPULSE_TG_CHANNEL 配置的 @username/频道 ID）。
+    频道未配置 → 跳过（fail-open）；复用 send_text，仅换 chat_id。"""
+    if not TELEGRAM_CHANNEL:
+        print("[info] Telegram 频道未配置（缺 NEWSPULSE_TG_CHANNEL），跳过频道推送")
+        return False
+    return send_text(text, token=token, chat_id=TELEGRAM_CHANNEL,
+                     proxies=proxies, timeout=timeout)
 
 
 def report_summary(date_str: str, score: float, total: int, pos: int, neg: int,
