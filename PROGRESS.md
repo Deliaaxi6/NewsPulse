@@ -34,6 +34,13 @@
 
 ## 会话日志（从设计阶段开始记录）
 
+### 2026-08-14 — 周复盘自动化（情绪分-指数相关性）
+- ✅ src/weekly_review.py 新建：回放当周 news CSV → classify+summarize 每日情绪分（LLM 缓存幂等零新增调用）；上证指数日涨跌（akshare）；统计 情绪(T) vs 次日指数(T+1) Pearson r + 方向命中率（|分|>0.3 信号日）；暗色主题 Chart.js 报告 reports/weekly_review_YYYY-WW.html + 邮件推送
+- ✅ 数据不足（<3 个新闻日）跳过生成（预热期合理行为，fail-safe）
+- ✅ tests/test_weekly_review.py 新建 9/9；本地与服务器 19 suite 全绿；服务器 crontab 周六 10:30 已注册
+- ✅ 提交 5efea7e
+- 📌 待办：数据积累 2-3 周后周复盘自动产出首批有效统计
+
 ### 2026-08-14 — 回测升级：A/B/C 因子接入 + 参数网格扫描（Phase 2 回测模式）
 - ✅ backtest.py 决策接入方案 A/B/C：个股情绪覆盖（stock_senti_map + STOCK_SENTI_MIN 阈值 + 置信度 w）、回调策略买入（select CSV strategies 字段判定）、超买降权（lbc≥3），与生产 decide() 口径一致
 - ✅ 持仓止损：T+1 开盘经 sim_account.stop_loss_signal 判定（涨停不卖沿用），止损卖出进入按交易日序列的冷却（sl_cool），冷却期内禁买同一标的
