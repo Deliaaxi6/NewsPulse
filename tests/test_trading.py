@@ -79,6 +79,50 @@ def test_predict_validation(tmp: Path) -> int:
     return fails
 
 
+def test_stop_loss(tmp: Path) -> int:
+    """个股止损（方案A）：成本回撤≥8% 生成止损决策；冷却期内禁止买入。"""
+    fails = 0
+    state = {"positions": {
+        "600519": {"shares": 100, "cost": 10.0, "leverage": 1},   # 现价 9.1 → 回撤 9%
+        "000858": {"shares": 100, "cost": 10.0, "leverage": 1},   # 现价 9.3 → 回撤 7%
+        "601318": {"shares": 100, "cost": 10.0, "leverage": 2},   # 无行情
+        "600036": {"shares": 0, "cost": 10.0, "leverage": 1},     # 空仓
+        "000001": {"shares": 100, "cost": 0.0, "leverage": 1},    # 成本缺失
+    }}
+    quotes = {"600519": {"price": 9.1}, "000858": {"price": 9.3}}
+    got = sim_account.stop_loss_signal(state, quotes, "2026-08-14")
+    syms = {g["stock"] for g in got}
+    ok = syms == {"600519"}
+    fails += 0 if ok else 1
+    print(f"[{'OK' if ok else 'FAIL'}] 止损触发 回撤9%触发/7%不触发/无行情跳过/空仓跳过/零成本跳过 -> {syms}")
+    d = next(g for g in got if g["stock"] == "600519")
+    ok = d["signal"] == "sell" and "个股止损" in d["reason"] and d["leverage"] == 1
+    fails += 0 if ok else 1
+    print(f"[{'OK' if ok else 'FAIL'}] 止损决策字段 signal/leverage/reason -> {d}")
+
+    log = tmp / "stop_loss_log.csv"
+    pd.DataFrame([{"date": "2026-08-07", "stock": "000002", "reason": "个股止损"},
+                  {"date": "2026-08-14", "stock": "600000", "reason": "个股止损"}]
+                 ).to_csv(log, index=False, encoding="utf-8-sig")
+    old = sim_account.DATA_DIR
+    sim_account.DATA_DIR = tmp
+    try:
+        cases = [
+            ("600000", "2026-08-14", True, "当日止损 → 冷却"),
+            ("600000", "2026-08-18", True, "止损后3个交易日 → 冷却"),
+            ("600000", "2026-08-21", False, "止损后≥5个交易日 → 可买"),
+            ("000002", "2026-08-14", False, "其他股票不受影响"),
+        ]
+        for sym, date_str, expect, note in cases:
+            got = sim_account._stop_cooled(sym, date_str)
+            ok = got == expect
+            fails += 0 if ok else 1
+            print(f"[{'OK' if ok else 'FAIL'}] 止损冷却 {note:20s} -> {got} (expect {expect})")
+    finally:
+        sim_account.DATA_DIR = old
+    return fails
+
+
 def main() -> int:
     fails = 0
     for q, expect, note in BOARD_CASES:
@@ -97,7 +141,9 @@ def main() -> int:
         print(f"[{'OK' if ok else 'FAIL'}] 熔断杠杆 {note:14s} -> {got} (expect {expect})")
     with tempfile.TemporaryDirectory() as td:
         fails += test_predict_validation(Path(td))
-    print(f"trading: {13 - fails}/13 passed")
+    with tempfile.TemporaryDirectory() as td:
+        fails += test_stop_loss(Path(td))
+    print(f"trading: {20 - fails}/20 passed")
     return 1 if fails else 0
 
 

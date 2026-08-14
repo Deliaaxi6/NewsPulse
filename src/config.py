@@ -67,6 +67,11 @@ MIN_COMMISSION = 5.0
 
 SENTI_SCORE_CUT = 0.6
 
+# 个股止损（方案A）：持仓成本回撤 ≥STOP_LOSS_RATIO 触发止损卖出（次日开盘价成交，
+# 遵守涨停不卖/一字板保护）；止损后 STOP_COOLDOWN_DAYS 个交易日内不再买入该股
+STOP_LOSS_RATIO = 0.08
+STOP_COOLDOWN_DAYS = 5
+
 LIMIT_UP_PCT = 9.9
 LIMIT_DOWN_PCT = -9.9
 ONE_WORD_TOL = 0.01

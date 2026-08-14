@@ -9,10 +9,12 @@ import pandas as pd
 
 from config import (DATA_DIR, INIT_CASH, MAX_POSITION_RATIO, MAX_TOTAL_RATIO,
                     COMMISSION_RATE, STAMP_TAX, MIN_COMMISSION, LIMIT_UP_PCT,
-                    LIMIT_DOWN_PCT, ONE_WORD_TOL)
+                    LIMIT_DOWN_PCT, ONE_WORD_TOL, STOP_LOSS_RATIO,
+                    STOP_COOLDOWN_DAYS)
 import circuit_breaker as cb
 import net_guard
 import select_stock
+import fund_flow
 
 FLAT_BAND = 1.0  # |涨跌幅| < FLAT_BAND% 视为 "flat"
 
@@ -130,6 +132,49 @@ def positions_rows(state, today, quotes, pool):
     return rows
 
 
+def _stop_cooled(sym: str, today: str) -> bool:
+    """该股最近止损日距今 < STOP_COOLDOWN_DAYS 交易日 → 冷却中禁止买入。
+    交易日历不可用时降级自然日（fail-open，与熔断冷却同模式）。"""
+    f = DATA_DIR / "stop_loss_log.csv"
+    if not f.exists():
+        return False
+    try:
+        df = pd.read_csv(f, encoding="utf-8-sig", dtype={"stock": str})
+        dates = df[df["stock"].astype(str) == sym]["date"]
+    except Exception:
+        return False
+    if dates.empty:
+        return False
+    last = str(dates.iloc[-1])
+    days = fund_flow.trading_days_between(last, today)
+    if days is None:
+        days = (dt.date.fromisoformat(today) - dt.date.fromisoformat(last)).days
+    return days < STOP_COOLDOWN_DAYS
+
+
+def stop_loss_signal(state: dict, quotes: dict, today: str) -> list:
+    """持仓成本回撤 ≥STOP_LOSS_RATIO → 生成止损卖出决策（与普通 sell 同路径成交，
+    涨停不卖/一字板保护由 run_orders 统一处理）。成本缺失/无行情跳过，宁缺毋假。"""
+    rows = []
+    for sym, pos in state["positions"].items():
+        if pos.get("shares", 0) <= 0 or not pos.get("cost"):
+            continue
+        q = quotes.get(sym)
+        if not q or not q.get("price"):
+            continue
+        cost = float(pos["cost"])
+        price = float(q["price"])
+        if cost <= 0:
+            continue
+        drawdown = (price - cost) / cost
+        if drawdown <= -STOP_LOSS_RATIO:
+            rows.append({"stock": sym, "signal": "sell",
+                         "leverage": pos.get("leverage", 1),
+                         "reason": f"个股止损（成本{cost:.2f}→现价{price:.2f}，"
+                                   f"回撤{drawdown:.1%}）"})
+    return rows
+
+
 def run_orders(state, decisions, quotes, today, logs, pool):
     total_value = state["cash"] + sum(
         state["positions"].get(s["symbol"], {}).get("shares", 0) * quotes.get(s["symbol"], {}).get("price", 0)
@@ -159,8 +204,17 @@ def run_orders(state, decisions, quotes, today, logs, pool):
             logs.append({"date": today, "stock": sym, "action": "sell", "price": q["price"],
                          "shares": pos["shares"], "amount": round(amount, 2),
                          "leverage": d["leverage"], "reason": d["reason"]})
+            if "个股止损" in str(d.get("reason", "")):
+                stop_log = DATA_DIR / "stop_loss_log.csv"
+                pd.DataFrame([{"date": today, "stock": sym, "reason": d["reason"]}]).to_csv(
+                    stop_log, index=False, encoding="utf-8-sig",
+                    mode="a", header=not stop_log.exists())
             state["positions"].pop(sym, None)
         elif d["signal"] == "buy":
+            if _stop_cooled(sym, today):
+                print(f"[warn] {sym} 止损冷却期（{STOP_COOLDOWN_DAYS}日），跳过买入")
+                log_blocked(today, sym, "止损冷却期")
+                continue
             if q.get("pct") is not None and q["pct"] <= LIMIT_DOWN_PCT:
                 print(f"[warn] {sym} 跌停不买")
                 log_blocked(today, sym, "跌停挂单无法成交")
@@ -264,6 +318,11 @@ def main(date_str=None):
         print(f"[circuit] 熔断冷却中（{cb.status_text()}），今日全部观望不交易")
         decisions = [dict(d, signal="hold", reason="熔断冷却中，暂停交易")
                      for d in decisions]
+    else:
+        stops = stop_loss_signal(state, quotes, date_str)
+        if stops:
+            print(f"[warn] 触发止损 {len(stops)} 只（成本回撤≥{STOP_LOSS_RATIO:.0%}）")
+            decisions = decisions + stops
     run_orders(state, decisions, quotes, date_str, logs, pool)
     pfile = DATA_DIR / "portfolio.csv"
     rows = positions_rows(state, date_str, quotes, pool)
