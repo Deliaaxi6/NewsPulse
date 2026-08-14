@@ -127,10 +127,15 @@ def _detect_legacy(df: pd.DataFrame, lookback: int = 5) -> list:
 
 
 def _detect_talib(df: pd.DataFrame, lookback: int = 5) -> list:
-    """talib 引擎：61 种 CDL 形态全量识别，返回中文名列表。"""
-    import pandas_ta as pta
+    """talib 引擎：61 种 CDL 形态全量识别，返回中文名列表。
+    引擎顺序：pandas-ta cdl_pattern(all)（62 列含 2 特列）→ 直调 TA-Lib 61 函数
+    （pandas-ta 0.4.x 需 Python≥3.12 时旧环境可用）→ 均不可用由 detect 降级 legacy。"""
+    try:
+        import pandas_ta as pta
 
-    r = df.ta.cdl_pattern(name="all")
+        r = df.ta.cdl_pattern(name="all")
+    except Exception:
+        return _detect_talib_direct(df, lookback)
     if r is None or r.empty:
         return []
     hits = []
@@ -139,6 +144,30 @@ def _detect_talib(df: pd.DataFrame, lookback: int = 5) -> list:
         tail = s.tail(lookback)
         if (tail.notna() & (tail != 0)).any():
             hits.append(TALIB_CN_MAP.get(col, col))
+    return list(dict.fromkeys(hits))
+
+
+def _detect_talib_direct(df: pd.DataFrame, lookback: int = 5) -> list:
+    """直调 TA-Lib C 库的 61 个 Pattern Recognition 函数（无需 pandas-ta）。
+    列名与 pandas-ta cdl_pattern 一致（pandas-ta 的两个特列缺失不影响，按列名容错）。"""
+    import talib
+
+    o = df["open"].to_numpy()
+    h = df["high"].to_numpy()
+    l = df["low"].to_numpy()
+    c = df["close"].to_numpy()
+    funcs = talib.get_function_groups().get("Pattern Recognition", [])
+    hits = []
+    for name in funcs:
+        f = getattr(talib, name, None)
+        if f is None:
+            continue
+        s = pd.Series(f(o, h, l, c), index=df.index)
+        tail = s.tail(lookback)
+        if (tail.notna() & (tail != 0)).any():
+            key = name if name in TALIB_CN_MAP else (
+                "CDL_" + name[3:] if name.startswith("CDL") else name)
+            hits.append(TALIB_CN_MAP.get(key, name))
     return list(dict.fromkeys(hits))
 
 

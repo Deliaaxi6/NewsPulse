@@ -24,6 +24,41 @@ def main() -> int:
         out.unlink()
     select_stock.fund_flow.is_trading_day = lambda d: True
     orig_pool, orig_detect = select_stock._zt_pool, select_stock.strategies.detect
+    orig_market = select_stock._market_pool
+    select_stock._market_pool = lambda d: []  # 测试禁用全市场快照网络调用
+
+    # --- 方案C：全市场快照本地过滤（纯函数） ---
+    snap = pd.DataFrame([
+        {"代码": "600001", "名称": "正常股", "涨跌幅": 3.2, "量比": 2.5, "成交额": 5e8},
+        {"代码": "600002", "名称": "*ST 退市股", "涨跌幅": 3.2, "量比": 2.5, "成交额": 5e8},
+        {"代码": "600003", "名称": "涨停股", "涨跌幅": 10.0, "量比": 2.5, "成交额": 5e8},
+        {"代码": "600004", "名称": "下跌股", "涨跌幅": -1.0, "量比": 2.5, "成交额": 5e8},
+        {"代码": "600005", "名称": "低量比", "涨跌幅": 3.2, "量比": 1.2, "成交额": 5e8},
+        {"代码": "600006", "名称": "低成交额", "涨跌幅": 3.2, "量比": 2.5, "成交额": 1e8},
+        {"代码": "600007", "名称": "正常股2", "涨跌幅": 0.5, "量比": 2.0, "成交额": 3e8},
+    ])
+    f = select_stock._filter_market_df(snap)
+    check("快照过滤 保留正常股", set(f["代码"]) == {"600001", "600007"}, str(set(f["代码"])))
+    check("快照过滤 空df", select_stock._filter_market_df(pd.DataFrame()).empty)
+    check("快照过滤 None", select_stock._filter_market_df(None).empty)
+    check("快照过滤 缺列容错", len(select_stock._filter_market_df(pd.DataFrame(
+        [{"代码": "600001", "名称": "正常股"}]))) == 1)
+
+    # --- 方案C：池合并（涨停池优先/去重/排序截断） ---
+    zt = [
+        {"symbol": "600519", "name": "茅台", "lbc": 2, "seal_amount": 5e8, "source": "zt"},
+        {"symbol": "000858", "name": "五粮液", "lbc": 1, "seal_amount": 1e8, "source": "zt"},
+    ]
+    mk = [
+        {"symbol": "000858", "name": "五粮液", "lbc": 0, "seal_amount": 0.0, "source": "market"},
+        {"symbol": "601318", "name": "平安", "lbc": 0, "seal_amount": 0.0, "source": "market"},
+        {"symbol": "600036", "name": "招行", "lbc": 0, "seal_amount": 0.0, "source": "market"},
+    ]
+    merged = select_stock._merge_pools(zt, mk)
+    check("合并 去重后4只", len(merged) == 4, str([m["symbol"] for m in merged]))
+    check("合并 涨停池优先", merged[0]["symbol"] == "600519" and merged[1]["symbol"] == "000858")
+    check("合并 保留market股", "601318" in [m["symbol"] for m in merged])
+    check("合并 保留source字段", {m["symbol"]: m["source"] for m in merged}["601318"] == "market")
 
     # --- 正常：3 只涨停池 → 连板降序排序 + detect 命中写入 ---
     pool = pd.DataFrame([
@@ -82,6 +117,7 @@ def main() -> int:
     check("load_pool 缺文件返回 []", select_stock.load_pool("2099-06-06") == [])
 
     select_stock._zt_pool, select_stock.strategies.detect = orig_pool, orig_detect
+    select_stock._market_pool = orig_market
     select_stock.fund_flow.is_trading_day = lambda d: None
     if out.exists():
         out.unlink()
