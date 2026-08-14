@@ -45,6 +45,29 @@ def _latest_close(hist: dict, upto: str) -> float:
     return last
 
 
+def _load_backtest_pool(tdate: str) -> list:
+    """回测池：优先当日 select_<tdate>.csv（与生产链路 select_stock 一致，T-1 涨停池盘前可用，
+    严格无前视）；文件缺失/为空/读取失败 → 回退 config.STOCKS 基准池。"""
+    p = DATA_DIR / f"select_{tdate}.csv"
+    if p.exists():
+        try:
+            df = pd.read_csv(p, encoding="utf-8-sig", dtype={"symbol": str})
+            if not df.empty:
+                return [{"symbol": str(r["symbol"]), "name": str(r.get("name", ""))}
+                        for _, r in df.iterrows()]
+            print(f"[warn] select_{tdate}.csv 为空，回退 STOCKS")
+        except Exception as e:
+            print(f"[warn] select_{tdate}.csv 读取失败: {e}，回退 STOCKS")
+    return STOCKS
+
+
+def _ensure_hist(sym: str, hist: dict, start: str, end: str) -> dict:
+    """按需加载个股历史行情（select 池股票可能不在 STOCKS 中）。"""
+    if sym not in hist:
+        hist[sym] = load_hist_quotes(sym, start, end)
+    return hist
+
+
 def run_backtest(start, end):
     news_files = sorted(DATA_DIR.glob("news_*.csv"))
     news_dates = [f.stem.replace("news_", "") for f in news_files
@@ -65,9 +88,11 @@ def run_backtest(start, end):
         df = filter_news.classify(df)
         summary = filter_news.summarize(df, tdate)
         score = summary["senti_score"]
+        pool = _load_backtest_pool(tdate)
         decisions = []
-        for s in STOCKS:
+        for s in pool:
             sym = s["symbol"]
+            _ensure_hist(sym, hist, start, end)
             q = hist[sym].get(tdate)
             change = q["pct"] if q else 0.0
             if score > 0.3 and change > 0:

@@ -44,6 +44,7 @@
 - ✅ tests/test_ml_advisor.py 新建 10 用例（无数据跳过/不足20天跳过/合成数据训练收敛/干预阈值/缓存复用/上涨市不干预/特征零值安全/缺文件fail-open/decision 集成干预与未启用），全过
 - ✅ 全量回归 15 suite ALL PASSED；真实链路：filter_news 无 key 降级正常（情绪 0.097 与历史一致，幂等）、ml_advisor 数据不足跳过、decision 2026-08-14 全 hold 正常
 - ✅ 真实调用联调（用户提供 key，setx NEWSPULSE_DS_KEY 持久化）：实测发现 v4-flash 默认思考模式导致两坑——① 不加 response_format 时输出自由文本；② reasoning.enabled=false 参数不生效，15 条/批思考耗尽 max_tokens=512 时 content 为空串致 JSON 解析失败。调参修复：max_tokens=4096 + reasoning_effort=low（省 ~35% tokens）+ response_format=json_object；实测 371 条全量分类成功（第一批偶发输出空数组，熔断计数被后续成功批重置，未误熔断），同日重跑 371 条全命中缓存零调用（幂等计费验证 ✓）
+- ✅ 回测模式完善（登记未处理项）：src/backtest.py 选股池改为优先当日 select_{T}.csv（与生产 select_stock 链路一致，T-1 涨停池盘前可用，严格无前视），缺失/空/读取失败回退 config.STOCKS 基准池；行情按需加载（select 池股票可能不在 STOCKS）；tests/test_backtest.py 新建 6 用例（池优先/缺失回退/空文件回退/读取失败回退/池外股票按需加载/全流程走 select 池），全过；真实区间回测 2026-08-13~14 正常（情绪<0.3 无交易）
 - 📌 待办：ML 需积累 ≥20 个交易日数据后自动生效；Telegram 频道接入（Phase 3 剩余项）
 
 ### 2026-08-13 — 前端预览页升级：Chart.js dashboard 模板（GitHub 拉取改造）
