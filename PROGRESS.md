@@ -34,6 +34,15 @@
 
 ## 会话日志（从设计阶段开始记录）
 
+### 2026-08-14 — 回测升级：A/B/C 因子接入 + 参数网格扫描（Phase 2 回测模式）
+- ✅ backtest.py 决策接入方案 A/B/C：个股情绪覆盖（stock_senti_map + STOCK_SENTI_MIN 阈值 + 置信度 w）、回调策略买入（select CSV strategies 字段判定）、超买降权（lbc≥3），与生产 decide() 口径一致
+- ✅ 持仓止损：T+1 开盘经 sim_account.stop_loss_signal 判定（涨停不卖沿用），止损卖出进入按交易日序列的冷却（sl_cool），冷却期内禁买同一标的
+- ✅ sim_account.stop_loss_signal 增加可选 ratio 参数（缺省取 config.STOP_LOSS_RATIO，生产调用不变）
+- ✅ 网格扫描：`python src/backtest.py --grid` 遍历 止损率{5%,8%,12%} × 冷却{3,5,7} × 个股阈值{2,3,5} 共 27 组，输出 收益/最大回撤/胜率/交易数 对照表（当前真实数据仅 2 个新闻日，统计意义有限，待数据积累后重跑）
+- ✅ 测试 6→11 用例：止损触发（12%回撤）、冷却禁买（窗口边界）、个股覆盖（市场-0.5→个股+0.5 买入）、网格执行；本地与服务器 18 suite 全绿
+- ✅ 提交 deaf8a6；真实数据回放（08-13~08-14）链路通（首日 pct=0 无成交，符合预期）
+- 📌 待办：数据积累 2-3 周后重跑 --grid 获得统计有效的参数结论；真实持仓出现后观察止损行为
+
 ### 2026-08-14 — 方案 A/B/C 落地（个股止损 / 个股情绪 / 追涨修复）+ 服务器环境对齐
 - ✅ 方案 A 个股止损：`STOP_LOSS_RATIO=0.08` + `STOP_COOLDOWN_DAYS=5`（config.py）；sim_account 新增 `_stop_cooled()`/`stop_loss_signal()`，持仓成本回撤≥8% 生成止损卖出（涨停不卖/一字板保护沿用），卖后写 stop_loss_log.csv 且 5 个交易日内禁止再买该股；test_trading 20/20（回撤9%触发/7%不触发/无行情跳过/空仓跳过/零成本跳过/冷却窗口 4 例）
 - ✅ 方案 B 个股情绪：filter_news 新增 `stock_sentiment()`（related_stocks 6 位代码且在当日选股池内才分组，市场新闻 URL 不参与）写 `data/stock_sentiment_{date}.csv`；decision 新增 `stock_senti_map()`，个股新闻 ≥3 条（`STOCK_SENTI_MIN`）时用个股情绪覆盖市场情绪参与信号判定与置信度（`w=min(1, 条数/10)`），杠杆仍用市场分，reason 追加"| 个股情绪: +x.xx(N条)"；tests/test_stock_sentiment.py 新建 20/20，run_tests.py 注册第 17 套件
