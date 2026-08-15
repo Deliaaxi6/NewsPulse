@@ -211,11 +211,13 @@ def poll_once(long_poll: int = 1) -> int:
 
 
 def daemon():
-    """常驻长轮询（systemd 托管）：消息到达秒级响应，异常自愈重启。"""
-    print("[ok] daemon 长轮询启动（timeout=25s）", flush=True)
+    """常驻短轮询（systemd 托管）：每秒一轮 getUpdates(timeout=1)。
+    代理链路对长挂起连接黑洞（实测 25s 长轮询被 mihomo 挂死），
+    短请求可稳定通过；消息延迟 <2s，仍满足"秒级响应"。"""
+    print("[ok] daemon 短轮询启动（timeout=1s）", flush=True)
     while True:
         try:
-            n = poll_once(long_poll=25)
+            n = poll_once(long_poll=1)
             if n:
                 print(f"[ok] 处理 {n} 条新消息", flush=True)
         except Exception as e:

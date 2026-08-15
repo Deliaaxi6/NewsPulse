@@ -142,7 +142,7 @@ def main():
                 tc.daemon()
             except KeyboardInterrupt:
                 pass
-        check("daemon 正常迭代", pp.call_count == 3 and pp.call_args[1]["long_poll"] == 25)
+        check("daemon 正常迭代", pp.call_count == 3 and pp.call_args[1]["long_poll"] == 1)
 
     print(f"telegram_control: {n}/{n} passed")
     return 0 if f == 0 else 1
