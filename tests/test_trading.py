@@ -2,6 +2,7 @@
 import sys
 import tempfile
 from pathlib import Path
+from unittest import mock
 
 import pandas as pd
 
@@ -172,6 +173,86 @@ def test_sell_alert() -> int:
     return fails
 
 
+def test_pending_merge(td: Path) -> int:
+    """Telegram 手动指令：到期合并、金额/股数限、卖出部分、回执、状态流转。"""
+    import telegram_control as tc
+    fails = 0
+
+    def check(name, ok, extra=""):
+        nonlocal fails
+        fails += 0 if ok else 1
+        print(f"[{'OK' if ok else 'FAIL'}] {name}" + (f" ← {extra}" if not ok else ""))
+
+    tc.PENDING_FILE = td / "pending_orders.csv"
+    tc.OFFSET_FILE = td / "tg_offset.txt"
+    tc._save_pending([
+        {"id": 1, "target_date": "2026-08-13", "side": "buy", "stock": "600519",
+         "qty_type": "amount", "qty": 3000.0, "status": "pending"},
+        {"id": 2, "target_date": "2026-08-14", "side": "buy", "stock": "000858",
+         "qty_type": "shares", "qty": 100.0, "status": "pending"},
+        {"id": 3, "target_date": "2026-08-14", "side": "sell", "stock": "600519",
+         "qty_type": "shares", "qty": 100.0, "status": "pending"},
+        {"id": 4, "target_date": "2026-08-16", "side": "buy", "stock": "601318",
+         "qty_type": "amount", "qty": 5000.0, "status": "pending"},  # 未来日：不执行
+        {"id": 5, "target_date": "2026-08-13", "side": "buy", "stock": "601318",
+         "qty_type": "amount", "qty": 5000.0, "status": "cancelled"},  # 已取消：不执行
+    ])
+    with mock.patch("sim_account.DATA_DIR", td):
+        decisions, due = sim_account._merge_pending_orders([], "2026-08-15")
+    check("到期筛选", len(due) == 3 and len(decisions) == 3,
+          f"due={len(due)} dec={len(decisions)}")
+    check("buy 金额限", decisions[0]["signal"] == "buy"
+          and decisions[0]["cap_amount"] == 3000.0)
+    check("buy 固定股数", decisions[1]["fixed_shares"] == 100.0)
+    check("sell 部分卖出", decisions[2]["signal"] == "sell"
+          and decisions[2]["sell_shares"] == 100.0)
+
+    # run_orders 撮合：600519 buy 3000 元 + sell 100 股；000858 100 股
+    pool = [{"symbol": "600519", "name": "贵州茅台"},
+            {"symbol": "000858", "name": "五粮液"},
+            {"symbol": "601318", "name": "中国平安"}]
+    quotes = {"600519": {"price": 10.0, "open": 10.0, "high": 11.0, "low": 9.5,
+                         "pct": 1.5},
+              "000858": {"price": 20.0, "open": 20.0, "high": 21.0, "low": 19.5,
+                         "pct": 2.0},
+              "601318": {"price": 30.0, "open": 30.0, "high": 31.0, "low": 29.5,
+                         "pct": 1.0}}
+    state = {"cash": 100000.0, "positions": {"600519": {"shares": 500,
+                                                        "cost": 9.0, "leverage": 1}}}
+    logs = []
+    with mock.patch("sim_account.DATA_DIR", td):
+        sim_account.run_orders(state, decisions, quotes, "2026-08-15", logs, pool)
+    check("买入 3000 元金额限", any(l["action"] == "buy" and l["stock"] == "600519"
+          and 0 < l["amount"] <= 3000 and l["shares"] % 100 == 0 for l in logs),
+          [f"{l['action']}{l['stock']}{l['amount']}" for l in logs])
+    check("买入 100 股固定", any(l["action"] == "buy" and l["stock"] == "000858"
+          and l["shares"] == 100 for l in logs))
+    check("部分卖出 100 股", any(l["action"] == "sell" and l["stock"] == "600519"
+          and l["shares"] == 100 for l in logs))
+    check("卖出后余仓 600", state["positions"]["600519"]["shares"] == 600)
+
+    # 回执与状态流转
+    with mock.patch("sim_account.telegram_push.send_text") as tg:
+        sim_account._notify_pending_results(logs, due)
+    rows = tc._load_pending()
+    check("到期指令标记 executed", all(r["status"] == "executed" for r in rows
+          if r["id"] in (1, 2, 3)))
+    check("未来/取消指令不动", rows[3]["status"] == "pending"
+          and rows[4]["status"] == "cancelled")
+    check("回执含成交明细", tg.call_count == 1 and "指令#1" in tg.call_args[0][0]
+          and "已买入" in tg.call_args[0][0] and "已卖出" in tg.call_args[0][0],
+          tg.call_args[0][0][:120] if tg.call_args else "")
+
+    # 无成交 → 未成交回执
+    tc._save_pending([{"id": 9, "target_date": "2026-08-13", "side": "buy",
+                       "stock": "601318", "qty_type": "amount", "qty": 5000.0,
+                       "status": "pending"}])
+    with mock.patch("sim_account.telegram_push.send_text") as tg:
+        sim_account._notify_pending_results([], [{"id": 9}])
+    check("未成交回执", "未能成交" in tg.call_args[0][0])
+    return fails
+
+
 def main() -> int:
     fails = 0
     for q, expect, note in BOARD_CASES:
@@ -192,8 +273,10 @@ def main() -> int:
         fails += test_predict_validation(Path(td))
     with tempfile.TemporaryDirectory() as td:
         fails += test_stop_loss(Path(td))
+    with tempfile.TemporaryDirectory() as td:
+        fails += test_pending_merge(Path(td))
     fails += test_sell_alert()
-    print(f"trading: {24 - fails}/24 passed")
+    print(f"trading: {27 - fails}/27 passed")
     return 1 if fails else 0
 
 

@@ -3,6 +3,7 @@
 含预测校验：对前一日 decision_*.csv 的预测做次日回馈（predict vs actual）。
 """
 import sys
+import re
 import datetime as dt
 
 import pandas as pd
@@ -10,12 +11,14 @@ import pandas as pd
 from config import (DATA_DIR, INIT_CASH, MAX_POSITION_RATIO, MAX_TOTAL_RATIO,
                     COMMISSION_RATE, STAMP_TAX, MIN_COMMISSION, LIMIT_UP_PCT,
                     LIMIT_DOWN_PCT, ONE_WORD_TOL, STOP_LOSS_RATIO,
-                    STOP_COOLDOWN_DAYS)
+                    STOP_COOLDOWN_DAYS, LEVERAGE_LOW)
 import circuit_breaker as cb
 import net_guard
 import select_stock
 import fund_flow
 import alert
+import telegram_push
+import telegram_control
 
 FLAT_BAND = 1.0  # |涨跌幅| < FLAT_BAND% 视为 "flat"
 
@@ -202,23 +205,32 @@ def run_orders(state, decisions, quotes, today, logs, pool):
                 print(f"[warn] {sym} 涨停不卖")
                 log_blocked(today, sym, "涨停挂单无法成交")
                 continue
-            amount = pos["shares"] * q["price"]
+            shares = pos["shares"]
+            if d.get("sell_shares"):
+                shares = min(d["sell_shares"], pos["shares"]) // 100 * 100
+                if shares <= 0:
+                    print(f"[warn] {sym} 手动卖出股数不足一手，跳过")
+                    log_blocked(today, sym, "卖出股数不足一手")
+                    continue
+            amount = shares * q["price"]
             fee = max(amount * COMMISSION_RATE, MIN_COMMISSION) + amount * STAMP_TAX
             state["cash"] += amount - fee
             logs.append({"date": today, "stock": sym, "action": "sell", "price": q["price"],
-                         "shares": pos["shares"], "amount": round(amount, 2),
+                         "shares": shares, "amount": round(amount, 2),
                          "leverage": d["leverage"], "reason": d["reason"]})
             if "个股止损" in str(d.get("reason", "")):
                 stop_log = DATA_DIR / "stop_loss_log.csv"
                 pd.DataFrame([{"date": today, "stock": sym, "reason": d["reason"]}]).to_csv(
                     stop_log, index=False, encoding="utf-8-sig",
                     mode="a", header=not stop_log.exists())
-            state["positions"].pop(sym, None)
+            state["positions"][sym]["shares"] -= shares
+            if state["positions"][sym]["shares"] <= 0:
+                state["positions"].pop(sym, None)
             name = next((p.get("name", "") for p in (pool or [])
                          if p.get("symbol") == sym), "")
-            pnl = round((q["price"] - float(pos["cost"])) * pos["shares"], 2)
+            pnl = round((q["price"] - float(pos["cost"])) * shares, 2)
             alert.notify("自动卖出",
-                         f"{name}({sym}) 卖出{pos['shares']}股 @{q['price']} "
+                         f"{name}({sym}) 卖出{shares}股 @{q['price']} "
                          f"金额{amount:.0f} 盈亏{pnl:+.0f} 原因:{d['reason']}")
         elif d["signal"] == "buy":
             if _stop_cooled(sym, today):
@@ -230,9 +242,14 @@ def run_orders(state, decisions, quotes, today, logs, pool):
                 log_blocked(today, sym, "跌停挂单无法成交")
                 continue
             budget = min(total_value * MAX_POSITION_RATIO, state["cash"])
+            if d.get("cap_amount"):
+                budget = min(budget, d["cap_amount"])
             if budget <= MIN_COMMISSION:
                 continue
             shares = (budget * 0.999) / q["price"] // 100 * 100
+            if d.get("fixed_shares"):
+                max_shares = (budget * 0.999) // q["price"] // 100 * 100
+                shares = min(d["fixed_shares"], max_shares) // 100 * 100
             if shares <= 0:
                 continue
             amount = shares * q["price"]
@@ -240,8 +257,14 @@ def run_orders(state, decisions, quotes, today, logs, pool):
             if amount + fee > state["cash"]:
                 continue
             state["cash"] -= amount + fee
-            state["positions"][sym] = {"shares": shares, "cost": round(amount / shares, 3),
-                                        "leverage": d["leverage"]}
+            old = state["positions"].get(sym)
+            if old:
+                old_shares = old["shares"]
+                old["shares"] = old_shares + shares
+                old["cost"] = round((old["cost"] * old_shares + amount) / old["shares"], 3)
+            else:
+                state["positions"][sym] = {"shares": shares, "cost": round(amount / shares, 3),
+                                            "leverage": d["leverage"]}
             logs.append({"date": today, "stock": sym, "action": "buy", "price": q["price"],
                          "shares": shares, "amount": round(amount, 2),
                          "leverage": d["leverage"], "reason": d["reason"]})
@@ -305,6 +328,73 @@ def validate_predictions(today, quotes):
           f"({hits / len(records):.0%})")
 
 
+def _merge_pending_orders(decisions: list, today: str) -> tuple:
+    """Telegram 手动指令 → 当日决策。target_date < today 的 pending 到期执行
+    （周末指令 → 周一开盘成交，与系统信号同一撮合路径）。
+    返回 (附加后的 decisions, 到期指令列表)。"""
+    pfile = DATA_DIR / "pending_orders.csv"
+    if not pfile.exists():
+        return decisions, []
+    try:
+        df = pd.read_csv(pfile, encoding="utf-8-sig",
+                         dtype={"id": int, "stock": str, "status": str})
+    except Exception as e:
+        print(f"[warn] pending 读取失败: {e}")
+        return decisions, []
+    due = [r for r in df.to_dict("records")
+           if r.get("status") == "pending" and str(r.get("target_date", "9999")) < today]
+    if not due:
+        return decisions, []
+    print(f"[info] 手动指令 {len(due)} 条到期执行")
+    for r in due:
+        tag = f" [指令#{r['id']}]"
+        if r["side"] == "buy":
+            extra = ({"fixed_shares": float(r["qty"])}
+                     if r["qty_type"] == "shares" else {"cap_amount": float(r["qty"])})
+            decisions.append({"date": today, "stock": r["stock"], "signal": "buy",
+                              "leverage": LEVERAGE_LOW, "predict": "up",
+                              "confidence": 0.5, "reason": f"Telegram 手动买入{tag}",
+                              **extra})
+        else:
+            extra = ({"sell_shares": float(r["qty"])}
+                     if r["qty_type"] == "shares" else {})
+            decisions.append({"date": today, "stock": r["stock"], "signal": "sell",
+                              "leverage": LEVERAGE_LOW, "predict": "down",
+                              "confidence": 0.5, "reason": f"Telegram 手动卖出{tag}",
+                              **extra})
+    return decisions, due
+
+
+def _notify_pending_results(logs: list, due: list):
+    """按 reason 中的 [指令#id] 匹配成交日志，回执 Telegram 并标记 executed。"""
+    if not due:
+        return
+    rows = telegram_control._load_pending()
+    by_tag = {}
+    for l in logs:
+        m = re.search(r"指令#(\d+)", str(l.get("reason", "")))
+        if m:
+            by_tag.setdefault(m.group(1), []).append(l)
+    msgs = []
+    for r in due:
+        oid = str(r["id"])
+        for row in rows:
+            if str(row.get("id", "")) == oid:
+                row["status"] = "executed"
+                break
+        hits = by_tag.get(oid, [])
+        if not hits:
+            msgs.append(f"⚠️ 指令#{oid} 未能成交（停牌/一字板/涨停跌停/熔断冷却/现金或持仓不足）")
+            continue
+        for l in hits:
+            side = "买入" if l["action"] == "buy" else "卖出"
+            msgs.append(f"✅ 指令#{oid} 已{side} {l['stock']} {l['shares']:.0f}股 "
+                        f"@{l['price']} 金额{l['amount']:.0f}")
+    telegram_control._save_pending(rows)
+    if msgs:
+        telegram_push.send_text("\n".join(msgs))
+
+
 def main(date_str=None):
     date_str = date_str or dt.date.today().isoformat()
     qfile = DATA_DIR / f"decision_{date_str}.csv"
@@ -312,6 +402,7 @@ def main(date_str=None):
         print(f"[warn] 无决策文件 {qfile}，跳过撮合")
         return
     decisions = pd.read_csv(qfile, encoding="utf-8-sig", dtype={"stock": str}).to_dict("records")
+    decisions, due_orders = _merge_pending_orders(decisions, date_str)
     state = load_portfolio()
     pool = select_stock.load_pool(date_str)
     held = [{"symbol": sym} for sym, p in state["positions"].items()
@@ -347,6 +438,7 @@ def main(date_str=None):
                                   mode="a", header=not lfile.exists())
         for l in logs:
             print(f"[trade] {l['action']} {l['stock']} {l['shares']:.0f}股 @{l['price']} → {l['amount']:.2f}")
+    _notify_pending_results(logs, due_orders)
 
     total_value = float(rows[-1]["total_value"]) if rows else state["cash"]
     top_leverage = _top_leverage(decisions, state["positions"])

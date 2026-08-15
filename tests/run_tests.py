@@ -17,6 +17,7 @@ import test_strategies
 import test_market_env
 import test_select_stock
 import test_telegram
+import test_telegram_control
 import test_llm_sentiment
 import test_ml_advisor
 import test_backtest
@@ -41,6 +42,7 @@ def main() -> int:
         ("market_env", test_market_env.main),
         ("select_stock", test_select_stock.main),
         ("telegram", test_telegram.main),
+("telegram_control", test_telegram_control.main),
         ("llm_sentiment", test_llm_sentiment.main),
         ("ml_advisor", test_ml_advisor.main),
         ("backtest", test_backtest.main),
