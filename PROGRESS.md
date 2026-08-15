@@ -10,7 +10,7 @@
 - [ ] 任务4：filter_news.py 关键词筛选+情绪分
 - [ ] 任务5：decision.py 决策+杠杆
 - [ ] 任务6：sim_account.py 模拟撮合+熔断
-- [ ] 任务7：daily_report.py 报告+邮件
+- [ ] 任务7：daily_report.py 报告+Telegram 推送
 - [ ] 任务8：run_all.sh + crontab 注册
 - [ ] 任务9：前20天预热期验证
 
@@ -34,23 +34,31 @@
 
 ## 会话日志（从设计阶段开始记录）
 
+### 2026-08-15 — Phase 4：Telegram 远程指令（模拟盘双向）
+- ✅ 单向推送 → 双向：`/buy 600519 5000|100股`、`/sell 600519 [500]`、`/status`、`/cancel`、`/help`
+- ✅ 安全：chat_id 白名单、6 位代码校验、单笔金额上限 3 万、撮合层单票≤30% 最终把关
+- ✅ 执行：target_date<撮合日 到期合并入当日决策，次日开盘价成交（与信号同撮合路径）；成交/未成交均 Telegram 回执；指令标记 executed
+- ✅ 修复 bug：买入已持仓股票原实现覆盖持仓 → 改为累加+摊薄成本
+- ✅ 部署：服务器 crontab 每 5 分钟 poll（secrets.env 注入 token，fail-open 偶发网络错自动补偿）；22 套件 ALL PASSED；提交 1ed577a
+- 📌 待办：远端默认分支 master→main（GitHub 手动）；回测参数验证等数据；服务器无备份（可选项）
+
 ### 2026-08-15 — 体验一致性第三波（HTML 横幅 / 周报 Telegram / 日志轮转）
 - ✅ ① HTML 日报利空红色横幅：情绪分 ≤-0.1 时 KPI 上方红色告警卡（与 Telegram 摘要同阈值，复用 BEARISH_SCORE）；抽 _bearish_banner 纯函数。test_daily_report 15→19
-- ✅ ② 周复盘 Telegram 通道：生成后推送摘要（周/区间/样本/Pearson r/命中率/周均情绪），与邮件并存
+- ✅ ② 周复盘 Telegram 通道：生成后推送摘要（周/区间/样本/Pearson r/命中率/周均情绪），与直连通道并存
 - ✅ ③ 服务器 cron.log 轮转：logrotate（daily/rotate 30/compress/copytruncate）已部署验证
 - ✅ 本地与服务器 21 套件 ALL PASSED；提交 45c43ed 已推送
 - 📌 待办：远端默认分支 master→main（GitHub 手动）；回测参数验证等数据；服务器无备份（可选项）
 
 ### 2026-08-15 — 可靠性修复第二波（链路/LLM/周报告警）
-- ✅ ① run_all 链路失败告警：每步骤 try/except，崩溃即 alert.notify（Telegram+邮件）并中止后续（fail-stop，防残缺数据日报）；_STEPS 存模块引用便于测试。提交 b3deab6
+- ✅ ① run_all 链路失败告警：每步骤 try/except，崩溃即 alert.notify（Telegram 双通道）并中止后续（fail-stop，防残缺数据日报）；_STEPS 存模块引用便于测试。提交 b3deab6
 - ✅ ② LLM 降级监控：首批失败告警"分类降级"（该批降级关键词）、连续3批熔断告警；修正"缓存命中"日志措辞（原 len(out) 含 API 新增误导）；缓存机制核实无误（hash 幂等+按日文件）。提交 56b6915
 - ✅ ③ 周复盘跳过通知：<3 新闻日跳过时 alert.notify（不再静默）。提交 ab5b793
 - ✅ 测试 21 套件全绿（run_all 5、llm 12、weekly_review 10）；本地与服务器 ALL PASSED
-- 🔔 通知机制切换：邮件通知取消 → Telegram（chat_id 6359097393，ai_notifier_pro_bot）
+- 🔔 通知机制切换：已迁移 → 纯 Telegram（chat_id 6359097393，ai_notifier_pro_bot）
 - 📌 待办：远端默认分支 master→main；回测参数验证等数据；cron.log 轮转；周复盘 Telegram 通道
 
 ### 2026-08-15 — 可靠性修复四件套（按优先级）
-- ✅ ① 数据源降级告警：新建 src/alert.py（Telegram+邮件双通道 fail-open，HTML 转义）；select_stock 快照失败/空池时告警。提交 af82b41
+- ✅ ① 数据源降级告警：新建 src/alert.py（Telegram 双通道 fail-open，HTML 转义）；select_stock 快照失败/空池时告警。提交 af82b41
 - ✅ ② 卖出告警：sim_account.run_orders 每笔成交卖出推送告警（名称/代码/股数/价格/金额/盈亏/原因）；涨停不卖/无行情不告警。提交 64ab7c5
 - ✅ ③ 休市日早退：run_all 开头 is_trading_day=False 直接跳过全链路（避免节假日空新闻/旧数据日报）；日历不可用 fail-open。提交 da38664
 - ✅ ④ 利空提醒：telegram report_summary 情绪分 ≤-0.1 附加红色"今日利空主导"提醒（有买入信号也附加）。提交 d1a3be3
@@ -59,13 +67,13 @@
 
 ### 2026-08-15 — 收尾小事项（Telegram 重试 / 订阅监控 / 分支改名）
 - ✅ Telegram 推送加固：send_text 对网络类异常（SSL EOF/连接/超时）自动重试 2 次（间隔 2s/4s），HTTP 业务错误不重试；解决服务器经 mihomo 代理偶发 SSL EOF；test_telegram 11→14 用例
-- ✅ mihomo 订阅监控：/opt/newspulse/scripts/sub_check.sh（带 Clash UA 拉主备订阅源，body<5KB 视为失效→error 邮件告警），crontab 周日 8:00；实测主源 51774B 正常
+- ✅ mihomo 订阅监控：/opt/newspulse/scripts/sub_check.sh（带 Clash UA 拉主备订阅源，body<5KB 视为失效→error 告警），crontab 周日 8:00；实测主源 51774B 正常
 - ✅ 分支改名：本地 master→main 已推送（远端 master 仍为默认分支，待 GitHub 手动改默认分支后删除）
 - ✅ 提交 a711309（telegram 重试）
 - 📌 待办：GitHub 设置→默认分支改 main → 删除远端 master
 
 ### 2026-08-14 — 周复盘自动化（情绪分-指数相关性）
-- ✅ src/weekly_review.py 新建：回放当周 news CSV → classify+summarize 每日情绪分（LLM 缓存幂等零新增调用）；上证指数日涨跌（akshare）；统计 情绪(T) vs 次日指数(T+1) Pearson r + 方向命中率（|分|>0.3 信号日）；暗色主题 Chart.js 报告 reports/weekly_review_YYYY-WW.html + 邮件推送
+- ✅ src/weekly_review.py 新建：回放当周 news CSV → classify+summarize 每日情绪分（LLM 缓存幂等零新增调用）；上证指数日涨跌（akshare）；统计 情绪(T) vs 次日指数(T+1) Pearson r + 方向命中率（|分|>0.3 信号日）；暗色主题 Chart.js 报告 reports/weekly_review_YYYY-WW.html + Telegram 推送
 - ✅ 数据不足（<3 个新闻日）跳过生成（预热期合理行为，fail-safe）
 - ✅ tests/test_weekly_review.py 新建 9/9；本地与服务器 19 suite 全绿；服务器 crontab 周六 10:30 已注册
 - ✅ 提交 5efea7e
@@ -85,16 +93,16 @@
 - ✅ 方案 B 个股情绪：filter_news 新增 `stock_sentiment()`（related_stocks 6 位代码且在当日选股池内才分组，市场新闻 URL 不参与）写 `data/stock_sentiment_{date}.csv`；decision 新增 `stock_senti_map()`，个股新闻 ≥3 条（`STOCK_SENTI_MIN`）时用个股情绪覆盖市场情绪参与信号判定与置信度（`w=min(1, 条数/10)`），杠杆仍用市场分，reason 追加"| 个股情绪: +x.xx(N条)"；tests/test_stock_sentiment.py 新建 20/20，run_tests.py 注册第 17 套件
 - ✅ 方案 C 追涨修复：select_stock 新增 `_filter_market_df()`（非ST/涨幅0~9.9%/量比>1.5/成交额>2亿）+ `_market_pool()`（东财 spot_em 全市场一次请求，失败降级纯涨停池）+ `_merge_pools()`（涨停池优先去重排序，写 CSV 剔除内部 source 列）；decision 新增 `CALLBACK_STRATS={"回踩年线","低波动启动","无大跌回踩"}` + `_is_callback()`（回调策略不要求当日上涨，reason"回调企稳"）+ `OVERBOUGHT_LBC=3`/`RSI_OVERBOUGHT=80` + `_overbought()`（buy 后 confidence-0.1 +"（超买降权）"）；test_select_stock 增补过滤/合并用例
 - ✅ 服务器环境对齐：pandas-ta 0.4.x 要求 Python≥3.12（服务器 py3.11 无可用版本，PyPI 旧版已 yank）→ kline_patterns 新增 `_detect_talib_direct()` 直调 TA-Lib 61 个 CDL 函数（无需 pandas-ta）；服务器 `pip install TA-Lib 0.6.8`（manylinux wheel 捆绑 C 库）；本地两路径输出一致，服务器 indicators 16/16
-- ✅ 验证：本地全量回归 17 suite ALL PASSED；服务器全量 17 suite ALL PASSED；服务器 run_all 实测——快照过滤失败降级纯涨停池（fail-open ✓）、个股情绪 20 只入库（000887 个股 -0.40 触发 sell 信号，覆盖市场 -0.05）、61 形态生效、报告+邮件+Telegram 推送成功
+- ✅ 验证：本地全量回归 17 suite ALL PASSED；服务器全量 17 suite ALL PASSED；服务器 run_all 实测——快照过滤失败降级纯涨停池（fail-open ✓）、个股情绪 20 只入库（000887 个股 -0.40 触发 sell 信号，覆盖市场 -0.05）、61 形态生效、报告+Telegram 推送成功
 - ✅ 提交：`27dba89`(A 止损) → `351ccea`(B 个股情绪) → `c42f21a`(C 追涨+talib 直调)
 - 📌 待办：全市场快照接口偶发 RemoteDisconnected（东财限流，已有降级链）；Telegram 偶发 SSL EOF（代理抖动，重试后成功）；止损信号需真实持仓后观察
 
 ### 2026-08-14 — 服务器部署完成（101.96.196.187, CentOS 7）
-- ✅ 环境：Miniconda Python 3.11.9（/opt/miniconda3，glibc 2.17 无法 pip 装 pandas → conda install pandas/numpy 规避源码构建）；conda env `np`（Python 3.11.13 / pandas 2.3.2 / akshare 1.18.91 / adata 2.9.5）；项目上传 /opt/newspulse（含 email-notification 邮件脚本 + config.json chmod 600）
-- ✅ 密钥：/opt/newspulse/secrets.env（chmod 600）注入 TG token/chat_id/channel、NEWSPULSE_DS_KEY、邮件脚本路径、TG_PROXY=http://127.0.0.1:7897
+- ✅ 环境：Miniconda Python 3.11.9（/opt/miniconda3，glibc 2.17 无法 pip 装 pandas → conda install pandas/numpy 规避源码构建）；conda env `np`（Python 3.11.13 / pandas 2.3.2 / akshare 1.18.91 / adata 2.9.5）；项目上传 /opt/newspulse（含 telegram-notification 推送脚本 + config.json chmod 600）
+- ✅ 密钥：/opt/newspulse/secrets.env（chmod 600）注入 TG token/chat_id/channel、NEWSPULSE_DS_KEY、推送脚本路径、TG_PROXY=http://127.0.0.1:7897
 - ✅ 境外代理：机场订阅接口须带 Clash UA 才返回数据（verify_mode.htm 无 UA 时返回空）→ 本机下载 mihomo v1.19.29 compatible（旧 glibc）+ geoip.metadb/geosite.dat（服务器 GitHub 不可达，本机出墙下载上传）→ /opt/mihomo/config.yaml（mixed-port 7897，订阅原样）→ systemd 自启（mihomo.service active）；api.telegram.org 经代理 302 可达
 - ✅ Telegram 实测：send_text 私聊 + send_to_channel 频道双通道 OK（此前 404 为测试调用姿势错误——send_to_channel 签名 (text, token=None)，把频道 ID 误传为 text/token；生产 daily_report 单参调用正确，非代码 bug）
-- ✅ 全链路 run_all 实测：新闻 370 → LLM 分类全命中缓存（0 API 调用）→ 情绪 -0.0459（利0/空17/中353）→ 决策 20 条 hold 杠杆1倍（东财快照失败降级新浪 ✓）→ 撮合一字板屏蔽（fail-open ✓）→ 报告 report_2026-08-14.html 生成 + 邮件推送成功；portfolio.csv 100000 初始化
+- ✅ 全链路 run_all 实测：新闻 370 → LLM 分类全命中缓存（0 API 调用）→ 情绪 -0.0459（利0/空17/中353）→ 决策 20 条 hold 杠杆1倍（东财快照失败降级新浪 ✓）→ 撮合一字板屏蔽（fail-open ✓）→ 报告 report_2026-08-14.html 生成 + Telegram 推送成功；portfolio.csv 100000 初始化
 - ✅ crontab：`5 9 * * 1-5` 工作日 9:05 全链路（set -a + secrets.env + np 解释器 → logs/cron.log）
 - 📌 待办：ML ≥20 交易日自动生效（数据积累中）；20 天预热期验证；情绪分-指数相关性周复盘；master→main 改名（可选）；mihomo 订阅到期需手动更新 config
 
@@ -116,9 +124,9 @@
 - ✅ 选型：GitHub 开源单文件模板 KPI_Analyzer_Dashboard（暗色主题+KPI卡片+趋势图），克隆至 Temp\opencode\ 供改造参考（不并入项目）；备选 IDV-App 一并拉取对比
 - ✅ 依赖本地化（无 CDN 依赖，离线可用）：Chart.js 4.4.7（205KB）+ chartjs-plugin-annotation 3.0.1（34KB）→ `src/assets/`；模板的 xlsx（Excel 导入）功能剔除
 - ✅ src/daily_report.py 重构：PAGE 换暗色 dashboard（KPI 卡片×4：情绪分/新闻量/总资产/决策数 + 3 图：情绪趋势折线（≥7天加7日均线）/新闻量柱状/情绪分布环形 + 原 6 节表格保留）；数据以 JSON 注入（`__CHART_JSON__` 占位符 replace，避免 format 大括号转义）；新增 chart_data()/score_color()（A股红涨绿跌）
-- ✅ 修复 subprocess GBK 解码异常：邮件脚本 UTF-8 中文输出在 text=True 下按 GBK 解码崩溃 → encoding='utf-8', errors='replace'
+- ✅ 修复 subprocess GBK 解码异常：推送脚本 UTF-8 中文输出在 text=True 下按 GBK 解码崩溃 → encoding='utf-8', errors='replace'
 - ✅ 数据卫生：daily_sentiment.csv 存量 7 行同日 → 收拢为 1 行（取当日最后一条）；chart_data() 按 date 去重防趋势图重复点
-- ✅ 测试 13/13 新增（资源存在/模板元素/图表结构/去重/占位符残留），全量回归 ALL PASSED；报告 9755B 生成 + 邮件推送正常
+- ✅ 测试 13/13 新增（资源存在/模板元素/图表结构/去重/占位符残留），全量回归 ALL PASSED；报告 9755B 生成 + Telegram 推送正常
 - 📌 未处理：run_all 每次运行向 daily_sentiment 追加同日记录（写入侧去重留待后续任务）
 - 📌 下一步：InStock 融入「综合选股」
 
@@ -148,7 +156,7 @@
   - 新增 src/select_stock.py：东财涨停池（stock_zt_pool_em，T-1 基准日回退 7 天）→ 按连板数/封板资金排序取前 MAX_SCAN=20 → 逐只 strategies.detect（10 策略模板）→ data/select_YYYY-MM-DD.csv（code/symbol/name/lbc/seal_amount/strategies/score）；空池/接口失败 fail-open 写空 CSV；load_pool() dtype str 保前导 0
   - 生产链路切换：fetch_news（空池仅抓市场新闻）/decision（decide/fetch_spot 接收 pool）/sim_account（报价池=观察池∪实际持仓，修复 0 股持仓混入）/daily_report（names 映射+cyq 行用池）/run_all（选股前置步骤）；config.STOCKS 保留为 backtest 回测基准池（加注释）
   - tests/test_select_stock.py 16/16（排序/前导0/MAX_SCAN 截断/空池 fail-open/接口异常/非交易日/load_pool 缺文件）；全量回归 12 suite ALL PASSED
-  - 实测 2026-08-14 全链路：选股 20 只（涨停池 08-13，策略命中如百花医药 7连板）→ 决策 20 条（东财快照失败自动降级新浪）→ 撮合（一字板屏蔽正常）→ 报告+邮件
+  - 实测 2026-08-14 全链路：选股 20 只（涨停池 08-13，策略命中如百花医药 7连板）→ 决策 20 条（东财快照失败自动降级新浪）→ 撮合（一字板屏蔽正常）→ 报告+Telegram 推送
 - ✅ 生产链路 4 模块 CLI 参数统一（fetch_news/filter_news/sim_account/daily_report 均支持 `--date YYYY-MM-DD`，兼容位置参数，与 decision.py 一致）；实测 fetch_news --date 2026-08-14 抓 371 条（含 20 只动态池个股新闻）+ filter_news --date 情绪 0.097；回归 12 suite ALL PASSED
 - ✅ 熔断审查修复（缺陷1严重+缺陷3审计；缺陷2排期）：触发杠杆改为 max(当日决策, 持仓杠杆)（_top_leverage，持仓期 hold 回撤33%可触发）；持仓买入记录真实杠杆、portfolio 行 leverage 不再恒 1；熔断事件（触发/冷却推进/恢复）落盘 logs/circuit.log；test_trading +3 用例（13/13），回归 12 suite ALL PASSED
 - ✅ 熔断缺陷2修复（repeat_cool 窗口改交易日口径）：新增 fund_flow.trading_days_between()（adata 交易日历，日历不可用返回 None）；circuit_breaker._is_repeat() 交易日≤10 判重复，日历不可用降级自然日（fail-open）；test_circuit +4（14/14）、test_fund_flow +4（含倒序/跨休市/空日历），回归 12 suite ALL PASSED
@@ -185,7 +193,7 @@
 - ✅ src/decision.py 集成：辅助因子（均线多头共振 confidence+0.1 + reason 技术摘要），不改买卖主规则/杠杆/熔断
 - ✅ 修复 RSI 除零缺陷（纯上涨应=100）
 - ✅ 测试 16/16 新增，回归 48/48 全绿；run_all 正常；回测结果与实施前一致（无回归）
-- 📌 下一步：邮件推送 / G6 资金面 / 部署
+- 📌 下一步：Telegram 推送 / G6 资金面 / 部署
 
 ### 2026-08-13 — Phase 1 收尾（git + tests + 卫生）
 - ✅ git init + .gitignore（排除 data/reports/logs/__pycache__/secrets.json），24 文件首次暂存
@@ -198,7 +206,7 @@
 - ✅ compileall src+tests 通过
 - ⚠️ 修复测试脚本自身 3 个 bug：to_csv 误用 dtype 参数 / 熔断测试时序设计错误（触发后无法再测不触发）/ predictions.csv 读取缺 dtype=str（000858 前导零丢失）
 - ⚠️ ruff 未安装（规则：不擅自引入新依赖）→ 待部署时用 pip 安装后执行 `ruff check .`
-- 📌 下一步：提交首次 commit（待确认）/ 邮件推送 / G6 资金面 / 部署
+- 📌 下一步：提交首次 commit（待确认）/ Telegram 推送 / G6 资金面 / 部署
 
 ### 2026-08-13 — G4+G5+熔断器 完成
 - ✅ G5 停牌/一字板显式屏蔽：is_one_word_board + log_blocked → blocked_log.csv（6/6 用例）
@@ -207,7 +215,7 @@
 - ✅ 修复严重 bug：NEGATION 词表方向错误（"承压"等负面词翻转同向负面关键词）→ 拆分 NEGATION_GENERAL/BULL_ONLY；复合负面词（未达预期）不参与翻转；12/12 情绪用例
 - ✅ 修复回测估值虚亏：close 前向填充（-89.61% → 0%）
 - ✅ 全流程回归通过（情绪 0.21，熔断 normal）
-- 📌 下一步：G6 资金面 / G7 图表 / 邮件推送 / 部署
+- 📌 下一步：G6 资金面 / G7 图表 / Telegram 推送 / 部署
 
 ### 2026-08-13 — Gap 修复（三项核心，对照开源项目）
 - ✅ 词库增强：否定词翻转（前后20字窗口+重叠排除+去重）+ 程度词加权（1.5x/0.5x）+ 反例词入库；9/9 边界用例通过
@@ -215,7 +223,7 @@
 - ✅ 宁缺毋假：行情缺失 → predict="none" + reason 明确 unavailable，不再假装 0%
 - ✅ 产出 docs/gap-analysis.md（含 G4-G7 待办）
 - 📌 回归：全链路通过，情绪分 0.19（词库升级后利好 46→52）
-- 📌 下一步：G4 历史回测 / 熔断器 / 邮件推送 / 部署
+- 📌 下一步：G4 历史回测 / 熔断器 / Telegram 推送 / 部署
 
 ### 2026-08-13 — Demo 完成（全链路真实数据）
 - ✅ 本地 Windows 跑通全链路：东财新闻 236 条 → 情绪分 0.17 → 4 只观望 → 10万账户快照 → HTML 报告
