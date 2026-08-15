@@ -196,27 +196,30 @@ def poll_once(long_poll: int = 1) -> int:
         chat_id = str((msg.get("chat") or {}).get("id", ""))
         text = str(msg.get("text", ""))
         if chat_id != TELEGRAM_CHAT_ID:
-            print(f"[warn] 忽略非本人消息: chat={chat_id}")
+            print(f"[warn] 忽略非本人消息: chat={chat_id}", flush=True)
             continue
         if not text.strip():
             continue
-        reply = _handle(text.strip())
-        telegram_push.send_text(reply, chat_id=TELEGRAM_CHAT_ID)
-        n += 1
+        try:
+            reply = _handle(text.strip())
+            telegram_push.send_text(reply, chat_id=TELEGRAM_CHAT_ID)
+            n += 1
+        except Exception as e:
+            print(f"[warn] 处理消息异常（消息已投递，offset 继续推进）: {e}", flush=True)
     _save_offset(off)
     return n
 
 
 def daemon():
     """常驻长轮询（systemd 托管）：消息到达秒级响应，异常自愈重启。"""
-    print("[ok] daemon 长轮询启动（timeout=25s）")
+    print("[ok] daemon 长轮询启动（timeout=25s）", flush=True)
     while True:
         try:
             n = poll_once(long_poll=25)
             if n:
-                print(f"[ok] 处理 {n} 条新消息")
+                print(f"[ok] 处理 {n} 条新消息", flush=True)
         except Exception as e:
-            print(f"[warn] 轮询异常（1s 后继续）: {e}")
+            print(f"[warn] 轮询异常（1s 后继续）: {e}", flush=True)
         time.sleep(1)
 
 
