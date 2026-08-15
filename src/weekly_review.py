@@ -22,6 +22,7 @@ from config import DATA_DIR, REPORTS_DIR
 import filter_news
 from daily_report import send_report_email
 import alert
+import telegram_push
 
 
 PAGE = """<!DOCTYPE html>
@@ -189,6 +190,11 @@ def weekly_review(end: dt.date = None) -> Path:
     out.write_text(html, encoding="utf-8")
     print(f"[ok] 周复盘 → {out}（Pearson r={r_txt}，命中 {st['hit']}/{st['hit_n']}）")
     send_report_email(week, out)
+    telegram_push.send_text(
+        f"<b>NewsPulse 周复盘 {week}</b>\n"
+        f"区间 {start_s}~{end_s} · 新闻日 {days}\n"
+        f"情绪 vs 次日指数 Pearson r={r_txt} · 方向命中 {hit_txt}（{st['hit']}/{st['hit_n']}）\n"
+        f"周均情绪 {score_mean:+.2f}")
     return out
 
 

@@ -77,14 +77,19 @@ def main() -> int:
     check("跳过时通知", nt.call_count == 1 and "周复盘跳过" in nt.call_args[0][0],
           str(nt.call_args) if nt.call_args else "")
 
-    # 报告生成 + 邮件推送
+    # 报告生成 + 邮件推送 + Telegram 摘要
     with mock.patch("weekly_review.load_daily_sentiment", return_value=senti), \
          mock.patch("weekly_review.load_index_daily", return_value=idx), \
-         mock.patch("weekly_review.send_report_email") as send:
+         mock.patch("weekly_review.send_report_email") as send, \
+         mock.patch("weekly_review.telegram_push.send_text") as tg:
         out = wr.weekly_review(pd.Timestamp("2026-08-14").date())
     check("周复盘报告生成", out is not None and out.exists(),
           str(out) if out else "")
     check("邮件推送调用", send.call_count == 1)
+    check("Telegram 摘要推送", tg.call_count == 1
+          and "周复盘" in tg.call_args[0][0]
+          and "0.961" in tg.call_args[0][0] and "命中" in tg.call_args[0][0],
+          tg.call_args[0][0] if tg.call_args else "")
     if out:
         html = out.read_text(encoding="utf-8")
         check("报告含相关性统计", "Pearson" in html and "命中率" in html)

@@ -52,6 +52,7 @@ footer{color:var(--muted);font-size:12px;margin-top:24px}
 </style></head><body>
 <h1>NewsPulse 日报</h1>
 <div class="sub">{date} · {verdict} · 模拟交易，不构成投资建议</div>
+{bearish_banner}
 <div class="kpi-row">
   <div class="kpi-card" style="--kpi:{score_color}"><div class="kpi-label">市场情绪分</div><div class="kpi-value">{score}</div><div class="kpi-note">利好 {pos} · 利空 {neg} · 中性 {neu}</div></div>
   <div class="kpi-card" style="--kpi:#4a9eff"><div class="kpi-label">今日新闻</div><div class="kpi-value">{total}</div><div class="kpi-note">来源：东财快讯</div></div>
@@ -95,6 +96,16 @@ def verdict(score):
     if score <= -0.3:
         return "情绪偏空，系统倾向减仓"
     return "情绪中性，观望为主"
+
+
+def _bearish_banner(score: float, pos, neg) -> str:
+    """利空主导横幅 HTML（情绪分 ≤ BEARISH_SCORE 时非空）。"""
+    if score > telegram_push.BEARISH_SCORE:
+        return ""
+    return (f"<div style='background:#3a1d1d;border:1px solid #7a2d2d;color:#ff8b8b;"
+            f"padding:10px 14px;border-radius:8px;margin:0 0 14px;font-weight:600'>"
+            f"⚠️ 今日利空主导（情绪分 {score:+.2f}，利空 {neg} / "
+            f"利好 {pos}），注意持仓风险</div>")
 
 
 def score_color(score):
@@ -283,9 +294,11 @@ def main(date_str=None):
         "<tr><td colspan='6' style='color:#8b98a5'>今日观察池为空，无筹码分布</td></tr>"
 
     assets = positions[-1]["total_value"] if positions else 100000.0
+    bearish_banner = _bearish_banner(score, last["pos_cnt"], last["neg_cnt"])
     html = (_fill(PAGE, date=date_str, score=f"{score:+.2f}", total=last["total_news"],
                   pos=last["pos_cnt"], neg=last["neg_cnt"], neu=last["neutral_cnt"],
                   verdict=verdict(score), score_color=score_color(score),
+                  bearish_banner=bearish_banner,
                   assets=f"{assets:,.0f}", decision_count=len(decisions),
                   decision_rows=d_rows, prediction_rows=prediction_rows_html(),
                   position_rows=p_rows, trade_rows=t_rows, cyq_rows=c_rows)

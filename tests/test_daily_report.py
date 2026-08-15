@@ -53,15 +53,25 @@ def main() -> int:
     dd = daily_report.chart_data(dup)
     check("同日多条去重", len(dd["labels"]) == 1)
 
+    # --- 利空主导横幅 ---
+    check("利空横幅 -0.3 触发",
+          "利空主导" in daily_report._bearish_banner(-0.3, 5, 20)
+          and "-0.30" in daily_report._bearish_banner(-0.3, 5, 20))
+    check("利空横幅 0.2 不触发",
+          daily_report._bearish_banner(0.2, 5, 20) == "")
+    check("利空横幅 恰好 -0.1 触发",
+          "利空主导" in daily_report._bearish_banner(-0.1, 5, 20))
+
     # --- 渲染后无残留占位符 ---
     html = (daily_report._fill(daily_report.PAGE, date="2026-08-13", score="+0.21", total=236,
                                pos=52, neg=46, neu=138, verdict="情绪中性，观望为主",
-                               score_color="#4a9eff", assets="100,000", decision_count=4,
-                               decision_rows="", prediction_rows="", position_rows="",
-                               trade_rows="", cyq_rows="")
+                               score_color="#4a9eff", bearish_banner="", assets="100,000",
+                               decision_count=4, decision_rows="", prediction_rows="",
+                               position_rows="", trade_rows="", cyq_rows="")
             .replace("__CHART_JSON__", json.dumps(daily_report.chart_data(_senti(3)))))
     check("渲染无残留占位符",
-          "{date}" not in html and "{score}" not in html and "__CHART_JSON__" not in html)
+          "{date}" not in html and "{score}" not in html and "__CHART_JSON__" not in html
+          and "{bearish_banner}" not in html)
     check("渲染含图表数据", '"scores"' in html)
 
     # --- 推送降噪（同日去重 + fail-open）---
@@ -81,7 +91,7 @@ def main() -> int:
     check("标记目录缺失 fail-open", not daily_report._already_sent("2026-08-13", rep))
     daily_report.SENT_MARK_FILE = old_mark
 
-    print(f"daily_report: 15/15 passed")
+    print(f"daily_report: 19/19 passed")
     return 1 if fails else 0
 
 
