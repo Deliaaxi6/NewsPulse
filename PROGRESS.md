@@ -34,6 +34,14 @@
 
 ## 会话日志（从设计阶段开始记录）
 
+### 2026-08-15 — 可靠性修复第二波（链路/LLM/周报告警）
+- ✅ ① run_all 链路失败告警：每步骤 try/except，崩溃即 alert.notify（Telegram+邮件）并中止后续（fail-stop，防残缺数据日报）；_STEPS 存模块引用便于测试。提交 b3deab6
+- ✅ ② LLM 降级监控：首批失败告警"分类降级"（该批降级关键词）、连续3批熔断告警；修正"缓存命中"日志措辞（原 len(out) 含 API 新增误导）；缓存机制核实无误（hash 幂等+按日文件）。提交 56b6915
+- ✅ ③ 周复盘跳过通知：<3 新闻日跳过时 alert.notify（不再静默）。提交 ab5b793
+- ✅ 测试 21 套件全绿（run_all 5、llm 12、weekly_review 10）；本地与服务器 ALL PASSED
+- 🔔 通知机制切换：邮件通知取消 → Telegram（chat_id 6359097393，ai_notifier_pro_bot）
+- 📌 待办：远端默认分支 master→main；回测参数验证等数据；cron.log 轮转；周复盘 Telegram 通道
+
 ### 2026-08-15 — 可靠性修复四件套（按优先级）
 - ✅ ① 数据源降级告警：新建 src/alert.py（Telegram+邮件双通道 fail-open，HTML 转义）；select_stock 快照失败/空池时告警。提交 af82b41
 - ✅ ② 卖出告警：sim_account.run_orders 每笔成交卖出推送告警（名称/代码/股数/价格/金额/盈亏/原因）；涨停不卖/无行情不告警。提交 64ab7c5
