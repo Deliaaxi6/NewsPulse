@@ -231,6 +231,22 @@ def test_pending_merge(td: Path) -> int:
           and l["shares"] == 100 for l in logs))
     check("卖出后余仓 600", state["positions"]["600519"]["shares"] == 600)
 
+    # 系统信号与手动指令同日同股：买入累加 + 成本摊薄
+    state2 = {"cash": 100000.0, "positions": {}}
+    logs2 = []
+    dec2 = [
+        {"stock": "600519", "signal": "buy", "leverage": 1, "reason": "情绪买入"},
+        {"stock": "600519", "signal": "buy", "leverage": 1,
+         "reason": "Telegram 手动买入 [指令#9]", "cap_amount": 2000.0},
+    ]
+    with mock.patch("sim_account.DATA_DIR", td):
+        sim_account.run_orders(state2, dec2, quotes, "2026-08-15", logs2, pool)
+    pos2 = state2["positions"]["600519"]
+    check("同日系统+手动买入累加", len(logs2) == 2
+          and pos2["shares"] == 2900 + 100
+          and abs(pos2["cost"] - 10.0) < 0.01,
+          f"shares={pos2['shares']} cost={pos2['cost']} logs={len(logs2)}")
+
     # 回执与状态流转
     with mock.patch("sim_account.telegram_push.send_text") as tg:
         sim_account._notify_pending_results(logs, due)
