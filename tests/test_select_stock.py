@@ -25,6 +25,9 @@ def main() -> int:
     select_stock.fund_flow.is_trading_day = lambda d: True
     orig_pool, orig_detect = select_stock._zt_pool, select_stock.strategies.detect
     orig_market = select_stock._market_pool
+    orig_notify = select_stock.alert.notify
+    notified = []
+    select_stock.alert.notify = lambda *a, **k: notified.append((a, k)) or False
     select_stock._market_pool = lambda d: []  # 测试禁用全市场快照网络调用
 
     # --- 方案C：全市场快照本地过滤（纯函数） ---
@@ -94,18 +97,22 @@ def main() -> int:
     df = pd.read_csv(out, encoding="utf-8-sig")
     check("MAX_SCAN 截断", len(df) == 20)
 
-    # --- 涨停池为空 → fail-open 写空 CSV ---
+    # --- 涨停池为空 → fail-open 写空 CSV + 告警 ---
+    notified.clear()
     select_stock._zt_pool = lambda base: pd.DataFrame()
     select_stock.select(TEST_DATE)
     df = pd.read_csv(out, encoding="utf-8-sig")
     check("空池写空 CSV", df.empty)
     check("空池 load_pool 返回 []", select_stock.load_pool(TEST_DATE) == [])
+    check("空池触发降级告警", len(notified) == 1 and "选股池为空" in notified[0][0][0])
 
-    # --- 涨停池接口异常 → fail-open ---
+    # --- 涨停池接口异常 → fail-open + 告警 ---
+    notified.clear()
     select_stock._zt_pool = lambda base: (_ for _ in ()).throw(ConnectionError("boom"))
     select_stock.select(TEST_DATE)
     df = pd.read_csv(out, encoding="utf-8-sig")
     check("接口异常写空 CSV", df.empty)
+    check("接口异常触发告警", len(notified) == 1 and "选股池为空" in notified[0][0][0])
 
     # --- 非交易日 → 不写文件 ---
     select_stock.fund_flow.is_trading_day = lambda d: False
@@ -118,6 +125,7 @@ def main() -> int:
 
     select_stock._zt_pool, select_stock.strategies.detect = orig_pool, orig_detect
     select_stock._market_pool = orig_market
+    select_stock.alert.notify = orig_notify
     select_stock.fund_flow.is_trading_day = lambda d: None
     if out.exists():
         out.unlink()

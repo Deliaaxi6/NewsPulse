@@ -17,6 +17,7 @@ from config import DATA_DIR
 import fund_flow
 import net_guard
 import strategies
+import alert
 
 MAX_SCAN = 20  # 扫描上限（全池可能上百只，全扫行情请求过重）
 DATE_FMT = "%Y%m%d"
@@ -89,6 +90,7 @@ def _market_pool(date_str: str) -> list:
                 for _, r in f.iterrows()]
     except Exception as e:
         print(f"[warn] 全市场快照过滤失败: {e}，降级纯涨停池")
+        alert.notify("选股数据源降级", f"全市场快照获取失败: {e}，今日仅用涨停池")
         return []
 
 
@@ -127,6 +129,7 @@ def select(date_str: str) -> None:
         pd.DataFrame(columns=["code", "symbol", "name", "lbc", "seal_amount", "strategies", "score"]
                      ).to_csv(out, index=False, encoding="utf-8-sig")
         print(f"[warn] 涨停池为空（{base}），写空池 {out}")
+        alert.notify("选股池为空", f"涨停池（基准 {base}）获取为空，今日无买入信号（写空池）")
         return
     pool = pool.sort_values(["连板数", "封板资金"], ascending=False).head(MAX_SCAN)
     zt_rows = []

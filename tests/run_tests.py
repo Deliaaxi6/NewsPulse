@@ -22,6 +22,7 @@ import test_ml_advisor
 import test_backtest
 import test_stock_sentiment
 import test_weekly_review
+import test_alert
 
 
 def main() -> int:
@@ -44,6 +45,7 @@ def main() -> int:
         ("backtest", test_backtest.main),
         ("stock_sentiment", test_stock_sentiment.main),
         ("weekly_review", test_weekly_review.main),
+("alert", test_alert.main),
     ]
     total_fail = 0
     for name, fn in suites:
