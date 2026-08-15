@@ -12,6 +12,7 @@ import json
 import requests
 
 from config import (DATA_DIR, DEEPSEEK_API_KEY, DEEPSEEK_MODEL, DEEPSEEK_API)
+import alert
 
 CACHE_PREFIX = "llm_cache"
 BATCH = 15
@@ -98,6 +99,7 @@ def classify_batch(rows: list, date_str: str | None = None) -> dict:
         return out
     fail_batches = 0
     done = 0
+    alerted_fail = False
     for start in range(0, len(pending), BATCH):
         chunk = pending[start:start + BATCH]
         try:
@@ -111,9 +113,18 @@ def classify_batch(rows: list, date_str: str | None = None) -> dict:
         except Exception as e:
             fail_batches += 1
             print(f"[warn] LLM 分类批失败({fail_batches}/{MAX_FAIL_BATCHES}): {e}")
+            if not alerted_fail:
+                alerted_fail = True
+                alert.notify("LLM 分类降级",
+                             f"第{start // BATCH + 1}批（{len(chunk)}条）分类失败: {e}，"
+                             "该批降级关键词规则")
             if fail_batches >= MAX_FAIL_BATCHES:
                 print("[warn] LLM 连续失败达上限，本次熔断，剩余用关键词规则")
+                alert.notify("LLM 分类熔断",
+                             f"连续 {MAX_FAIL_BATCHES} 批失败，剩余 "
+                             f"{len(pending) - start - len(chunk)} 条降级关键词规则")
                 break
     _save_cache(date_str or "", cache)
-    print(f"[ok] LLM 分类 {done}/{len(pending)} 条（{len(out)} 条含缓存）")
+    print(f"[ok] LLM 分类 {done}/{len(pending)} 条新增，"
+          f"缓存命中 {len(out) - done} 条（共 {len(out)} 条）")
     return out

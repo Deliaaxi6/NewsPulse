@@ -49,22 +49,32 @@ def main() -> int:
         check("同日重跑命中缓存不调API", out2 == out and post.call_count == 1)
 
     with mock.patch("llm_sentiment.DEEPSEEK_API_KEY", "k1"), \
-         mock.patch("llm_sentiment.requests.post", side_effect=ConnectionError("timeout")):
+         mock.patch("llm_sentiment.requests.post", side_effect=ConnectionError("timeout")), \
+         mock.patch("llm_sentiment.alert.notify") as nt:
         out = ls.classify_batch(rows, "2099-01-03")
         check("单批失败降级(空结果保留规则)", out == {})
+        check("单批失败触发降级告警", nt.call_count == 1
+              and "降级" in nt.call_args[0][0], str(nt.call_args))
 
     with mock.patch("llm_sentiment.DEEPSEEK_API_KEY", "k1"), \
-         mock.patch("llm_sentiment.requests.post", side_effect=ConnectionError("timeout")):
+         mock.patch("llm_sentiment.requests.post", side_effect=ConnectionError("timeout")), \
+         mock.patch("llm_sentiment.alert.notify") as nt:
         many = [{"text": f"n{i}"} for i in range(40)]
         out = ls.classify_batch(many, "2099-01-04")
         check("连续失败3批熔断(部分批次已尝试)", out == {})
+        subjects = [c[0][0] for c in nt.call_args_list]
+        check("熔断时降级+熔断双告警",
+              subjects.count("LLM 分类降级") == 1 and "LLM 分类熔断" in subjects,
+              str(subjects))
 
     resp_bad = mock.Mock()
     resp_bad.json.return_value = {"choices": [{"message": {"content": "not json"}}]}
     with mock.patch("llm_sentiment.DEEPSEEK_API_KEY", "k1"), \
-         mock.patch("llm_sentiment.requests.post", return_value=resp_bad):
+         mock.patch("llm_sentiment.requests.post", return_value=resp_bad), \
+         mock.patch("llm_sentiment.alert.notify") as nt:
         out = ls.classify_batch(rows, "2099-01-05")
         check("JSON 解析失败降级", out == {})
+        check("JSON 失败告警", nt.call_count == 1, str(nt.call_count))
 
     import filter_news as fn
     import pandas as pd
@@ -83,7 +93,7 @@ def main() -> int:
 
     ls.DATA_DIR = _old_data
     _tmp.cleanup()
-    print(f"llm_sentiment: {9 - fails}/9 passed")
+    print(f"llm_sentiment: {12 - fails}/12 passed")
     return 1 if fails else 0
 
 
