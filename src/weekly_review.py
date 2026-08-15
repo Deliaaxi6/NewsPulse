@@ -88,7 +88,7 @@ def load_daily_sentiment(start: str, end: str) -> list:
             continue
         try:
             df = pd.read_csv(f, encoding="utf-8-sig")
-            df = filter_news.classify(df)
+            df = filter_news.classify(df, d)
             s = filter_news.summarize(df, d)
             rows.append({"date": d, "score": float(s["senti_score"]),
                          "news": int(s["total_news"])})
