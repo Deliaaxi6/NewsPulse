@@ -7,5 +7,10 @@ logs/
 __pycache__/
 *.pyc
 
+# IDE
+.idea/
+*.iml
+.vscode/
+
 # 密钥（服务器部署时生成，严禁入库）
 secrets.json
