@@ -34,7 +34,15 @@
 
 ## 会话日志（从设计阶段开始记录）
 
-### 2026-08-14 — 收尾小事项（Telegram 重试 / 订阅监控 / 分支改名）
+### 2026-08-15 — 可靠性修复四件套（按优先级）
+- ✅ ① 数据源降级告警：新建 src/alert.py（Telegram+邮件双通道 fail-open，HTML 转义）；select_stock 快照失败/空池时告警。提交 af82b41
+- ✅ ② 卖出告警：sim_account.run_orders 每笔成交卖出推送告警（名称/代码/股数/价格/金额/盈亏/原因）；涨停不卖/无行情不告警。提交 64ab7c5
+- ✅ ③ 休市日早退：run_all 开头 is_trading_day=False 直接跳过全链路（避免节假日空新闻/旧数据日报）；日历不可用 fail-open。提交 da38664
+- ✅ ④ 利空提醒：telegram report_summary 情绪分 ≤-0.1 附加红色"今日利空主导"提醒（有买入信号也附加）。提交 d1a3be3
+- ✅ 测试套件 19→21（alert 4/4、run_all 3/3、telegram 14→18、trading 20→24）；本地与服务器全量 ALL PASSED
+- 📌 待办：远端默认分支 master→main（GitHub 手动）；回测参数统计验证等 2-3 周数据；cron.log 轮转
+
+### 2026-08-15 — 收尾小事项（Telegram 重试 / 订阅监控 / 分支改名）
 - ✅ Telegram 推送加固：send_text 对网络类异常（SSL EOF/连接/超时）自动重试 2 次（间隔 2s/4s），HTTP 业务错误不重试；解决服务器经 mihomo 代理偶发 SSL EOF；test_telegram 11→14 用例
 - ✅ mihomo 订阅监控：/opt/newspulse/scripts/sub_check.sh（带 Clash UA 拉主备订阅源，body<5KB 视为失效→error 邮件告警），crontab 周日 8:00；实测主源 51774B 正常
 - ✅ 分支改名：本地 master→main 已推送（远端 master 仍为默认分支，待 GitHub 手动改默认分支后删除）
