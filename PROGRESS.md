@@ -34,6 +34,13 @@
 
 ## 会话日志（从设计阶段开始记录）
 
+### 2026-08-15 — 体验一致性第三波（HTML 横幅 / 周报 Telegram / 日志轮转）
+- ✅ ① HTML 日报利空红色横幅：情绪分 ≤-0.1 时 KPI 上方红色告警卡（与 Telegram 摘要同阈值，复用 BEARISH_SCORE）；抽 _bearish_banner 纯函数。test_daily_report 15→19
+- ✅ ② 周复盘 Telegram 通道：生成后推送摘要（周/区间/样本/Pearson r/命中率/周均情绪），与邮件并存
+- ✅ ③ 服务器 cron.log 轮转：logrotate（daily/rotate 30/compress/copytruncate）已部署验证
+- ✅ 本地与服务器 21 套件 ALL PASSED；提交 45c43ed 已推送
+- 📌 待办：远端默认分支 master→main（GitHub 手动）；回测参数验证等数据；服务器无备份（可选项）
+
 ### 2026-08-15 — 可靠性修复第二波（链路/LLM/周报告警）
 - ✅ ① run_all 链路失败告警：每步骤 try/except，崩溃即 alert.notify（Telegram+邮件）并中止后续（fail-stop，防残缺数据日报）；_STEPS 存模块引用便于测试。提交 b3deab6
 - ✅ ② LLM 降级监控：首批失败告警"分类降级"（该批降级关键词）、连续3批熔断告警；修正"缓存命中"日志措辞（原 len(out) 含 API 新增误导）；缓存机制核实无误（hash 幂等+按日文件）。提交 56b6915
