@@ -70,9 +70,12 @@ def main() -> int:
               {"date": "2026-08-11", "score": -0.5, "news": 1}]
     with mock.patch("weekly_review.load_daily_sentiment", return_value=senti2), \
          mock.patch("weekly_review.load_index_daily", return_value=idx), \
-         mock.patch("weekly_review.send_report_email"):
+         mock.patch("weekly_review.send_report_email"), \
+         mock.patch("weekly_review.alert.notify") as nt:
         out = wr.weekly_review(pd.Timestamp("2026-08-14").date())
     check("数据不足跳过不生成", out is None, f"out={out}")
+    check("跳过时通知", nt.call_count == 1 and "周复盘跳过" in nt.call_args[0][0],
+          str(nt.call_args) if nt.call_args else "")
 
     # 报告生成 + 邮件推送
     with mock.patch("weekly_review.load_daily_sentiment", return_value=senti), \
@@ -88,7 +91,7 @@ def main() -> int:
 
     wr.DATA_DIR = old
     wr.REPORTS_DIR = old_r
-    print(f"weekly_review: {9 - fails}/9 passed")
+    print(f"weekly_review: {10 - fails}/10 passed")
     return 1 if fails else 0
 
 

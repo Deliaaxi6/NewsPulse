@@ -21,6 +21,7 @@ import akshare as ak
 from config import DATA_DIR, REPORTS_DIR
 import filter_news
 from daily_report import send_report_email
+import alert
 
 
 PAGE = """<!DOCTYPE html>
@@ -152,6 +153,8 @@ def weekly_review(end: dt.date = None) -> Path:
     senti = load_daily_sentiment(start_s, end_s)
     if len(senti) < 3:
         print(f"[warn] 周复盘 {week} 仅 {len(senti)} 个新闻日（<3），跳过生成")
+        alert.notify("周复盘跳过", f"{week}（{start_s}~{end_s}）仅 {len(senti)} "
+                      f"个新闻日（<3），未生成报告，数据积累中")
         return None
     idx = load_index_daily(start_s, end_s)
     st = stats(senti, idx)
