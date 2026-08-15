@@ -113,6 +113,37 @@ def main():
             n3 = tc.poll_once()
         check("poll 未配置跳过", n3 == 0)
 
+        # --- 长轮询参数 ---
+        fake2 = mock.Mock()
+        fake2.raise_for_status.return_value = None
+        fake2.json.return_value = {"result": []}
+        with mock.patch("telegram_control.requests.get", return_value=fake2) as rget, \
+             mock.patch("telegram_control.TELEGRAM_BOT_TOKEN", "tok"), \
+             mock.patch("telegram_control.TELEGRAM_CHAT_ID", MY_CHAT):
+            tc.poll_once(long_poll=25)
+        check("长轮询 timeout 参数", rget.called
+              and rget.call_args[1]["params"]["timeout"] == 25
+              and rget.call_args[1]["timeout"] == 40,
+              str(rget.call_args))
+
+        # --- daemon：异常自愈 + 正常迭代（KeyboardInterrupt 终止循环） ---
+        with mock.patch("telegram_control.poll_once",
+                        side_effect=[Exception("boom"), 1, KeyboardInterrupt()]) as pp, \
+             mock.patch("telegram_control.time.sleep"):
+            try:
+                tc.daemon()
+            except KeyboardInterrupt:
+                pass
+        check("daemon 异常自愈", pp.call_count == 3)
+        with mock.patch("telegram_control.poll_once",
+                        side_effect=[1, 1, KeyboardInterrupt()]) as pp, \
+             mock.patch("telegram_control.time.sleep"):
+            try:
+                tc.daemon()
+            except KeyboardInterrupt:
+                pass
+        check("daemon 正常迭代", pp.call_count == 3 and pp.call_args[1]["long_poll"] == 25)
+
     print(f"telegram_control: {n}/{n} passed")
     return 0 if f == 0 else 1
 

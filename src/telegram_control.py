@@ -15,6 +15,7 @@
 """
 import re
 import sys
+import time
 import datetime as dt
 from pathlib import Path
 
@@ -171,8 +172,9 @@ def _handle(text: str) -> str:
             "仅接受 /buy /sell /status /cancel /help")
 
 
-def poll_once() -> int:
-    """拉取并处理新消息，返回处理条数。未配置 token / 网络失败 fail-open 返回 0。"""
+def poll_once(long_poll: int = 1) -> int:
+    """拉取并处理新消息，返回处理条数。未配置 token / 网络失败 fail-open 返回 0。
+    long_poll：getUpdates 长轮询秒数（crontab 短轮询 1s；常驻 daemon 25s）。"""
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
         print("[info] Telegram 未配置，跳过指令轮询")
         return 0
@@ -180,8 +182,8 @@ def poll_once() -> int:
     try:
         r = requests.get(
             f"{TELEGRAM_API_BASE}/bot{TELEGRAM_BOT_TOKEN}/getUpdates",
-            params={"offset": off, "timeout": 1, "allowed_updates": ["message"]},
-            proxies=_proxy(), timeout=20)
+            params={"offset": off, "timeout": long_poll, "allowed_updates": ["message"]},
+            proxies=_proxy(), timeout=long_poll + 15)
         r.raise_for_status()
         updates = r.json().get("result", [])
     except Exception as e:
@@ -205,7 +207,23 @@ def poll_once() -> int:
     return n
 
 
+def daemon():
+    """常驻长轮询（systemd 托管）：消息到达秒级响应，异常自愈重启。"""
+    print("[ok] daemon 长轮询启动（timeout=25s）")
+    while True:
+        try:
+            n = poll_once(long_poll=25)
+            if n:
+                print(f"[ok] 处理 {n} 条新消息")
+        except Exception as e:
+            print(f"[warn] 轮询异常（1s 后继续）: {e}")
+        time.sleep(1)
+
+
 def main():
+    if len(sys.argv) > 1 and sys.argv[1] == "daemon":
+        daemon()
+        return 0
     n = poll_once()
     print(f"[ok] 指令轮询完成，处理 {n} 条新消息")
     return 0
