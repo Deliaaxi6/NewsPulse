@@ -8,11 +8,15 @@ import decision
 import sim_account
 import daily_report
 import select_stock
+import fund_flow
 
 
 def main():
     date_str = dt.date.today().isoformat()
     print(f"=== NewsPulse demo {date_str} ===")
+    if fund_flow.is_trading_day(date_str) is False:
+        print(f"[info] {date_str} 休市日，跳过今日全链路（避免空新闻/旧数据日报）")
+        return
     select_stock.main(date_str)
     fetch_news.main(date_str)
     filter_news.main(date_str)
