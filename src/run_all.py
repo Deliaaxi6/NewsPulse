@@ -1,4 +1,6 @@
-"""NewsPulse 一键入口（demo 版）：新闻→情绪→决策→撮合→报告。"""
+"""NewsPulse 一键入口（demo 版）：新闻→情绪→决策→撮合→报告。
+任一步骤崩溃 → 告警（Telegram+邮件）并中止后续步骤（fail-stop，避免基于
+残缺数据的误导日报）。"""
 import sys
 import datetime as dt
 
@@ -9,6 +11,27 @@ import sim_account
 import daily_report
 import select_stock
 import fund_flow
+import alert
+
+_STEPS = (
+    ("选股", select_stock),
+    ("新闻", fetch_news),
+    ("情绪", filter_news),
+    ("决策", decision),
+    ("撮合", sim_account),
+    ("报告", daily_report),
+)
+
+
+def _step(name, mod, date_str):
+    print(f"[run] 步骤 {name}")
+    try:
+        mod.main(date_str)
+    except Exception as e:
+        print(f"[error] 步骤 {name} 失败: {e}")
+        alert.notify(f"全链路步骤失败: {name}",
+                     f"{date_str} 步骤「{name}」异常: {type(e).__name__}: {e}")
+        raise
 
 
 def main():
@@ -17,12 +40,8 @@ def main():
     if fund_flow.is_trading_day(date_str) is False:
         print(f"[info] {date_str} 休市日，跳过今日全链路（避免空新闻/旧数据日报）")
         return
-    select_stock.main(date_str)
-    fetch_news.main(date_str)
-    filter_news.main(date_str)
-    decision.main(date_str)
-    sim_account.main(date_str)
-    daily_report.main(date_str)
+    for name, mod in _STEPS:
+        _step(name, mod, date_str)
     print("=== done ===")
 
 
