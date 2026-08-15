@@ -34,6 +34,13 @@
 
 ## 会话日志（从设计阶段开始记录）
 
+### 2026-08-15 — 缺陷清扫（journald / 文档 / 同日同股测试）
+- ✅ 修复服务器 journald（已死 3 个月，系统日志全丢）：enable+start 后 journal 恢复；daemon 日志已走文件不受影响
+- ✅ CLAUDE.md 修正"前 20 天预热期不交易"（代码无此门槛，旧文档误导）——ML 因子 ≥20 交易日自动启用但不闸门交易
+- ✅ 补测试：系统信号+手动指令同日同股 → 持仓累加+摊薄成本（27/27）；22 套件 ALL PASSED；提交 88f8a12
+- ⚠️ 安全线索：日志见境外 IP 51.91.64.198 SSH root 爆破（认证失败）→ 建议 fail2ban/密钥登录
+- 📌 待办：远端默认分支 master→main（GitHub 手动，步骤已给）；备份方案待确认；回测参数验证等数据
+
 ### 2026-08-15 — 远程指令即时响应（systemd 常驻长轮询）
 - ✅ 从 5 分钟 crontab 轮询升级为常驻 daemon：`telegram_control.py daemon` 长轮询（getUpdates timeout=25s），消息到达秒级响应
 - ✅ systemd 服务 newspulse-tg-bot（Restart=always 自愈），EnvironmentFile 注入 secrets.env；crontab poll 行已移除避免双进程抢消息
