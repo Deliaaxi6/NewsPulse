@@ -16,6 +16,8 @@ from config import (TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID,
 
 _MAX_ATTEMPTS = 3  # 网络/SSL 抖动重试（代理链路偶发 EOF）
 
+BEARISH_SCORE = -0.1  # 情绪分低于此值 → 日报附加利空红色提醒
+
 
 def send_text(text: str, token=None, chat_id=None, proxies=None, timeout=20) -> bool:
     """发送文本消息。成功 True；未配置/失败 False（不抛异常）。
@@ -67,10 +69,12 @@ def report_summary(date_str: str, score: float, total: int, pos: int, neg: int,
     head = (f"<b>NewsPulse 日报 {date_str}</b>\n"
             f"情绪分 {score:+.2f} · 利好 {pos} / 利空 {neg} · 新闻 {total}\n"
             f"总资产 {assets:,.0f} · 决策 {decision_count} 只")
+    warn = (f"\n<b>⚠️ 今日利空主导</b>（情绪分 {score:+.2f}，"
+            f"利空 {neg} / 利好 {pos}），注意持仓风险" if score <= BEARISH_SCORE else "")
     if buys:
         lines = [f"  {b['stock']} {b.get('leverage', 1)}倍 · {b['reason']}" for b in buys]
-        return head + "\n<b>买入信号:</b>\n" + "\n".join(lines)
-    return head + "\n无买入信号，观望为主"
+        return head + warn + "\n<b>买入信号:</b>\n" + "\n".join(lines)
+    return head + warn + "\n无买入信号，观望为主"
 
 
 def main(date_str=None, score=None, assets=None, buys=None):

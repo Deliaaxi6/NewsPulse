@@ -97,6 +97,19 @@ def main() -> int:
                            [{"stock": "秦安股份", "leverage": 3, "reason": "海龟突破"}])
     check("摘要含买入信号行",
           "买入信号" in s2 and "秦安股份" in s2 and "3倍" in s2 and "海龟突破" in s2, s2)
+    s3 = tp.report_summary("2026-08-14", -0.3, 371, 0, 19, 98000.0, 20)
+    check("利空提醒 情绪<=-0.1 触发",
+          "利空主导" in s3 and "-0.30" in s3 and "19" in s3, s3)
+    s4 = tp.report_summary("2026-08-14", -0.3, 371, 0, 19, 98000.0, 20,
+                           [{"stock": "秦安股份", "leverage": 1, "reason": "超跌反弹"}])
+    check("利空提醒 有买入时仍附加",
+          "利空主导" in s4 and "买入信号" in s4, s4)
+    s5 = tp.report_summary("2026-08-14", -0.05, 371, 0, 19, 98000.0, 20)
+    check("利空提醒 -0.05 不触发（阈值 -0.1）",
+          "利空主导" not in s5, "")
+    s6 = tp.report_summary("2026-08-14", -0.1, 371, 0, 19, 98000.0, 20)
+    check("利空提醒 恰好 -0.1 触发（<=）",
+          "利空主导" in s6, "")
 
     with mock.patch("telegram_push.TELEGRAM_CHANNEL", ""), \
          mock.patch("telegram_push.requests.post") as post:
@@ -116,7 +129,7 @@ def main() -> int:
         ok = tp.send_to_channel("hi")
         check("频道推送失败返回 False 不抛异常", ok is False)
 
-    print(f"telegram: {14 - fails}/14 passed")
+    print(f"telegram: {18 - fails}/18 passed")
     return 1 if fails else 0
 
 
