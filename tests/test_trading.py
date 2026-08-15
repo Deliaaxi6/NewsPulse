@@ -123,6 +123,55 @@ def test_stop_loss(tmp: Path) -> int:
     return fails
 
 
+def test_sell_alert() -> int:
+    """卖出（含止损）成交后推送告警；涨停不卖/无行情不成交时不告警。"""
+    fails = 0
+    pool = [{"symbol": "600519", "name": "贵州茅台"}]
+    calls = []
+    orig = sim_account.alert.notify
+    sim_account.alert.notify = lambda *a, **k: calls.append(a)
+    try:
+        state = {"cash": 100000.0,
+                 "positions": {"600519": {"shares": 100, "cost": 10.0, "leverage": 1}}}
+        quotes = {"600519": {"price": 11.0, "pct": 2.0}}
+        logs = []
+        sim_account.run_orders(state, [{"stock": "600519", "signal": "sell",
+                                        "leverage": 1, "reason": "个股止损"}],
+                               quotes, "2026-08-14", logs, pool)
+        ok = (len(calls) == 1 and "600519" in calls[0][1]
+              and "贵州茅台" in calls[0][1] and "+100" in calls[0][1]
+              and "个股止损" in calls[0][1])
+        fails += 0 if ok else 1
+        print(f"[{'OK' if ok else 'FAIL'}] 卖出告警 含代码/名称/盈亏/原因 -> {calls[0][1] if calls else ''}")
+        ok = len(logs) == 1 and "600519" not in state["positions"]
+        fails += 0 if ok else 1
+        print(f"[{'OK' if ok else 'FAIL'}] 卖出成交 持仓移除/日志记录")
+
+        calls.clear()
+        state2 = {"cash": 100000.0,
+                  "positions": {"600519": {"shares": 100, "cost": 10.0, "leverage": 1}}}
+        sim_account.run_orders(state2, [{"stock": "600519", "signal": "sell",
+                                         "leverage": 1, "reason": "个股止损"}],
+                               {"600519": {"price": 11.0, "pct": 10.0}},
+                               "2026-08-14", [], pool)
+        ok = not calls and "600519" in state2["positions"]
+        fails += 0 if ok else 1
+        print(f"[{'OK' if ok else 'FAIL'}] 涨停不卖 不成交不告警")
+
+        calls.clear()
+        state3 = {"cash": 100000.0,
+                  "positions": {"600519": {"shares": 100, "cost": 10.0, "leverage": 1}}}
+        sim_account.run_orders(state3, [{"stock": "600519", "signal": "sell",
+                                         "leverage": 1, "reason": "个股止损"}],
+                               {}, "2026-08-14", [], pool)
+        ok = not calls and "600519" in state3["positions"]
+        fails += 0 if ok else 1
+        print(f"[{'OK' if ok else 'FAIL'}] 行情缺失 不成交不告警")
+    finally:
+        sim_account.alert.notify = orig
+    return fails
+
+
 def main() -> int:
     fails = 0
     for q, expect, note in BOARD_CASES:
@@ -143,7 +192,8 @@ def main() -> int:
         fails += test_predict_validation(Path(td))
     with tempfile.TemporaryDirectory() as td:
         fails += test_stop_loss(Path(td))
-    print(f"trading: {20 - fails}/20 passed")
+    fails += test_sell_alert()
+    print(f"trading: {24 - fails}/24 passed")
     return 1 if fails else 0
 
 

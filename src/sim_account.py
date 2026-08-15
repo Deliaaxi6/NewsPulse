@@ -15,6 +15,7 @@ import circuit_breaker as cb
 import net_guard
 import select_stock
 import fund_flow
+import alert
 
 FLAT_BAND = 1.0  # |涨跌幅| < FLAT_BAND% 视为 "flat"
 
@@ -213,6 +214,12 @@ def run_orders(state, decisions, quotes, today, logs, pool):
                     stop_log, index=False, encoding="utf-8-sig",
                     mode="a", header=not stop_log.exists())
             state["positions"].pop(sym, None)
+            name = next((p.get("name", "") for p in (pool or [])
+                         if p.get("symbol") == sym), "")
+            pnl = round((q["price"] - float(pos["cost"])) * pos["shares"], 2)
+            alert.notify("自动卖出",
+                         f"{name}({sym}) 卖出{pos['shares']}股 @{q['price']} "
+                         f"金额{amount:.0f} 盈亏{pnl:+.0f} 原因:{d['reason']}")
         elif d["signal"] == "buy":
             if _stop_cooled(sym, today):
                 print(f"[warn] {sym} 止损冷却期（{STOP_COOLDOWN_DAYS}日），跳过买入")
