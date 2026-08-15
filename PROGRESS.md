@@ -34,6 +34,12 @@
 
 ## 会话日志（从设计阶段开始记录）
 
+### 2026-08-15 — 远程指令即时响应（systemd 常驻长轮询）
+- ✅ 从 5 分钟 crontab 轮询升级为常驻 daemon：`telegram_control.py daemon` 长轮询（getUpdates timeout=25s），消息到达秒级响应
+- ✅ systemd 服务 newspulse-tg-bot（Restart=always 自愈），EnvironmentFile 注入 secrets.env；crontab poll 行已移除避免双进程抢消息
+- ✅ 修复测试断言（mock .called 语义：父 mock 属性调用不置 called）；test_telegram_control 17→20；22 套件 ALL PASSED；提交 865b248
+- 📌 待办：远端默认分支 master→main（GitHub 手动）；回测参数验证等数据；服务器无备份（可选项）
+
 ### 2026-08-15 — Phase 4：Telegram 远程指令（模拟盘双向）
 - ✅ 单向推送 → 双向：`/buy 600519 5000|100股`、`/sell 600519 [500]`、`/status`、`/cancel`、`/help`
 - ✅ 安全：chat_id 白名单、6 位代码校验、单笔金额上限 3 万、撮合层单票≤30% 最终把关
