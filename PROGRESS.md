@@ -34,6 +34,11 @@
 
 ## 会话日志（从设计阶段开始记录）
 
+### 2026-08-15 — 秒回闭环验证 + fail2ban 防爆破
+- ✅ 用户 Telegram 实测 /status：daemon 短轮询秒级消费并回复（offset 916→917 推进，用户确认收到）——远程指令链路正式闭环
+- ✅ 服务器装 fail2ban（修复 SCLo 失效仓库：yum-config-manager --disable centos-sclo-sclo/-rh）：3 个爆破 IP 已封禁（171.231.185.127 / 192.253.248.216 / 45.148.10.164），bantime 1h
+- ⚠️ 观察：mihomo 代理偶发 SSL EOF（getUpdates 刷 warn），fail-open 自动重试，代理恢复即自愈；日志走 logrotate daily
+
 ### 2026-08-15 — 邮件→Telegram 迁移提交并全量同步服务器
 - ✅ 提交遗留迁移改动 84f39a4（config/alert/daily_report/weekly_review → send_telegram.py 通道，fail-open 保留）
 - ✅ 服务器部署：scripts/send_telegram.py + secrets/tg_config.json（token 从 secrets.env 环境提取，chmod 600）+ secrets.env 追加 NEWSPULSE_TG_SCRIPT/TG_CONFIG/http_proxy/https_proxy（服务器直连 TG 不通，urllib 走 127.0.0.1:7897）
