@@ -112,16 +112,19 @@ def strategy_factor(sym: str) -> list:
         return []
 
 
-def decide(score: float, spot: dict, pool: list) -> list:
+def decide(score: float, spot: dict, pool: list, date_str: str = None) -> list:
+    """决策。date_str 为决策日（--date 补跑时区别于运行日，避免资金面/市场
+    环境/ML/个股情绪误读"今天"）。缺省取运行日。"""
+    date_str = date_str or dt.date.today().isoformat()
     rows = []
-    ff = fund_factor_extra(dt.date.today().isoformat())
-    env = me.market_env(dt.date.today().isoformat())  # 大盘环境，None=数据不可用不压制
-    ml = ml_advisor.advice(dt.date.today().isoformat())  # ML 风控，数据不足 fail-open
-    ss_map = stock_senti_map(dt.date.today().isoformat())  # 个股情绪（方案B）
+    ff = fund_factor_extra(date_str)  # G6 资金面
+    env = me.market_env(date_str)  # 大盘环境，None=数据不可用不压制
+    ml = ml_advisor.advice(date_str)  # ML 风控，数据不足 fail-open
+    ss_map = stock_senti_map(date_str)  # 个股情绪（方案B）
     for s in pool:
         sym = s["symbol"]
         if sym not in spot:
-            rows.append({"date": dt.date.today().isoformat(), "stock": sym,
+            rows.append({"date": date_str, "stock": sym,
                          "signal": "hold", "leverage": LEVERAGE_LOW,
                          "predict": "none", "confidence": 0.0,
                          "reason": "行情unavailable，数据缺失宁缺毋假，跳过决策"})
@@ -196,7 +199,7 @@ def decide(score: float, spot: dict, pool: list) -> list:
             reason += f" | 资金面: {ff['label']}"
         if env:
             reason += f" | 市场: {env['note']}"
-        rows.append({"date": dt.date.today().isoformat(), "stock": sym,
+        rows.append({"date": date_str, "stock": sym,
                      "signal": signal, "leverage": leverage,
                      "predict": predict, "confidence": round(confidence, 4),
                      "reason": reason})
@@ -208,7 +211,7 @@ def main(date_str=None):
     senti = pd.read_csv(DATA_DIR / "daily_sentiment.csv", encoding="utf-8-sig")
     last = senti.iloc[-1]
     pool = select_stock.load_pool(date_str)
-    rows = decide(float(last["senti_score"]), fetch_spot(pool), pool)
+    rows = decide(float(last["senti_score"]), fetch_spot(pool), pool, date_str)
     out = DATA_DIR / f"decision_{date_str}.csv"
     pd.DataFrame(rows).to_csv(out, index=False, encoding="utf-8-sig")
     print(f"[ok] 决策 {len(rows)} 条 → {out}")
