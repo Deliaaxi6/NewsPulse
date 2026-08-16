@@ -13,8 +13,9 @@ MIN_DAYS = 300
 AMOUNT_MIN = 200000000  # 成交额门槛 2 亿（与 InStock 一致）
 
 
-def fetch_kline(sym: str):
-    """拉取个股日K（新浪，含 volume/amount），计算 p_change。失败返回 None。"""
+def fetch_kline(sym: str, asof: str = None):
+    """拉取个股日K（新浪，含 volume/amount），计算 p_change。失败返回 None。
+    asof 给 'YYYY-MM-DD' 时截断到该日收盘（回测/补跑不含未来数据）。"""
     try:
         import akshare as ak
 
@@ -28,6 +29,8 @@ def fetch_kline(sym: str):
 
         df = net_guard.try_chain("新浪日K", [("sina", _sina)])
         df = df.rename(columns=str.lower)
+        if "date" in df.columns and asof:
+            df = df[df["date"].astype(str).str[:10] <= asof]
         if "p_change" not in df.columns:
             df["p_change"] = (df["close"] / df["close"].shift(1) - 1) * 100
         if "amount" not in df.columns:
@@ -268,9 +271,10 @@ CHECKS = [
 ]
 
 
-def detect(sym: str) -> list:
-    """识别命中 InStock 经典策略的中文名列表（数据不足/行情失败返回 []）。"""
-    df = fetch_kline(sym)
+def detect(sym: str, date_str: str = None) -> list:
+    """识别命中 InStock 经典策略的中文名列表（数据不足/行情失败返回 []）。
+    date_str 给 'YYYY-MM-DD' 时按该日收盘数据判定（回测/补跑不含未来数据）。"""
+    df = fetch_kline(sym, asof=date_str)
     if df is None or len(df) < 30:
         return []
     return [name for name, fn in CHECKS if fn(df)]

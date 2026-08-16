@@ -82,10 +82,11 @@ def fetch_spot_sina(pool: list) -> dict:
     return result
 
 
-def tech_factor(sym: str) -> dict:
-    """G8 辅助因子：返回 (技术摘要, 形态列表)。失败返回空值，不阻断决策。"""
+def tech_factor(sym: str, date_str: str = None) -> dict:
+    """G8 辅助因子：返回 (技术摘要, 形态列表)。失败返回空值，不阻断决策。
+    date_str 按该日收盘数据计算（回测/补跑不含未来数据）。"""
     try:
-        df = indicators.fetch_daily(sym)
+        df = indicators.fetch_daily(sym, asof=date_str)
         m = indicators.analyze(df)
         patterns = kline_patterns.detect(df)
         return m, patterns
@@ -103,10 +104,11 @@ def fund_factor_extra(today: str) -> dict:
         return {"conf": 0.0, "label": "", "unavailable": []}
 
 
-def strategy_factor(sym: str) -> list:
-    """InStock 经典策略因子：命中策略中文名列表。失败返回 []，不阻断决策。"""
+def strategy_factor(sym: str, date_str: str = None) -> list:
+    """InStock 经典策略因子：命中策略中文名列表。失败返回 []，不阻断决策。
+    date_str 按该日收盘数据判定（回测/补跑不含未来数据）。"""
     try:
-        return strategies.detect(sym)
+        return strategies.detect(sym, date_str)
     except Exception as e:
         print(f"[warn] {sym} 策略因子失败: {e}")
         return []
@@ -130,8 +132,8 @@ def decide(score: float, spot: dict, pool: list, date_str: str = None) -> list:
                          "reason": "行情unavailable，数据缺失宁缺毋假，跳过决策"})
             continue
         change = spot.get(sym, 0.0)
-        m, patterns = tech_factor(sym)
-        strats = strategy_factor(sym)
+        m, patterns = tech_factor(sym, date_str)
+        strats = strategy_factor(sym, date_str)
         tech_note = indicators.describe(m) if m.get("ok") else (m.get("reason") or "技术面跳过")
         if patterns:
             tech_note += " | 形态: " + "/".join(patterns)

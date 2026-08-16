@@ -44,6 +44,21 @@ def main() -> int:
     check("分析汇总ok", indicators.analyze(df).get("ok") is True)
     check("数据不足ok=False", indicators.analyze(df[:10]).get("ok") is False)
 
+    # --- fetch_daily asof 截断：不含未来数据（mock akshare） ---
+    import datetime as dt
+    import unittest.mock as mock
+    big = _ohlc([(dt.date(2026, 3, 1) + dt.timedelta(days=i), 10.0, 10.0, 10.0, 10.0)
+                 for i in range(60)])
+    fake_ak = mock.MagicMock()
+    fake_ak.stock_zh_a_daily.return_value = big
+    with mock.patch.dict("sys.modules", {"akshare": fake_ak}):
+        cut = indicators.fetch_daily("600000", asof="2026-04-09")
+    check("asof截断到指定日", len(cut) == 40 and cut.iloc[-1]["date"] == "2026-04-09",
+          f"rows={len(cut)} last={cut.iloc[-1]['date'] if len(cut) else 'empty'}")
+    with mock.patch.dict("sys.modules", {"akshare": fake_ak}):
+        full = indicators.fetch_daily("600000")
+    check("无asof返回全量tail", len(full) == 60)
+
     # --- 指标：构造明确超买（连续涨停式上涨）--- 
     import datetime as dt
     up_rows = []
