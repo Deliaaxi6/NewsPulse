@@ -1,5 +1,5 @@
 """NewsPulse 一键入口（demo 版）：新闻→情绪→决策→撮合→报告。
-任一步骤崩溃 → 告警（Telegram+邮件）并中止后续步骤（fail-stop，避免基于
+任一步骤崩溃 → 告警（Telegram 双通道）并中止后续步骤（fail-stop，避免基于
 残缺数据的误导日报）。"""
 import sys
 import datetime as dt

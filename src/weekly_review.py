@@ -3,7 +3,7 @@
 - 回放当周 news_*.csv → classify+summarize 得到每日情绪分（LLM 缓存幂等，不新增 API 调用）
 - 上证指数日涨跌幅（akshare，失败降级跳过相关性）
 - 统计：Pearson 相关系数（情绪分 T vs 次日指数 T+1）、方向命中率（|分|>0.3 样本）、样本数
-- 输出 reports/weekly_review_{YYYY-WW}.html（暗色主题 + Chart.js 双轴图）并邮件推送
+- 输出 reports/weekly_review_{YYYY-WW}.html（暗色主题 + Chart.js 双轴图）并 Telegram 推送
 - 数据不足（<3 个配对样本）仅提示不生成（预热期合理行为）
 
 用法：python src/weekly_review.py [--end 2026-08-15]
@@ -20,7 +20,7 @@ import akshare as ak
 
 from config import DATA_DIR, REPORTS_DIR
 import filter_news
-from daily_report import send_report_email
+from daily_report import send_report_tg
 import alert
 import telegram_push
 
@@ -146,7 +146,7 @@ def stats(senti: list, idx: dict) -> dict:
 
 
 def weekly_review(end: dt.date = None) -> Path:
-    """生成周复盘 HTML 并邮件推送。返回报告路径（数据不足返回 None）。"""
+    """生成周复盘 HTML 并 Telegram 推送。返回报告路径（数据不足返回 None）。"""
     end = end or dt.date.today()
     monday, sunday = _week_range(end)
     start_s, end_s = monday.isoformat(), sunday.isoformat()
@@ -189,7 +189,7 @@ def weekly_review(end: dt.date = None) -> Path:
     out = REPORTS_DIR / f"weekly_review_{week}.html"
     out.write_text(html, encoding="utf-8")
     print(f"[ok] 周复盘 → {out}（Pearson r={r_txt}，命中 {st['hit']}/{st['hit_n']}）")
-    send_report_email(week, out)
+    send_report_tg(week, out)
     telegram_push.send_text(
         f"<b>NewsPulse 周复盘 {week}</b>\n"
         f"区间 {start_s}~{end_s} · 新闻日 {days}\n"

@@ -23,7 +23,7 @@ run_all.py (入口)
    │       trade_log: date,stock,action,price,shares,amount,leverage,reason
    │       输入: decision_{date}.csv + 次日开盘价
    │
-   └─ ⑤ daily_report.py ──→ reports/report_{date}.html + 邮件推送
+   └─ ⑤ daily_report.py ──→ reports/report_{date}.html + Telegram 推送
            输入: 当日全部 CSV
 ```
 
@@ -61,32 +61,32 @@ run_all.py (入口)
 
 ```
 触发: 杠杆=3 且 总市值(含杠杆)较建仓成本 跌超33%
-动作: 全部清仓 → 邮件告警 → state.json 记为 cooling(start_date)
+动作: 全部清仓 → Telegram 告警 → state.json 记为 cooling(start_date)
 恢复: 冷却期 ≥5 交易日 且 最近连续2日 senti_score>0
       → 恢复交易，但杠杆上限锁定为 1 倍（直到连续盈利 10 日才放开）
-防循环: 恢复后若两周内再次熔断 → 冷却期翻倍（10日）并触发人工警告邮件
+防循环: 恢复后若两周内再次熔断 → 冷却期翻倍（10日）并触发人工警告消息
 ```
 
 实现：`data/state.json` 持久化熔断状态，防止重启丢失。
 
-## 5. 邮件通知
+## 5. Telegram 通知
 
-- 复用 `C:\Users\Delia\.cc-switch\skills\email-notification\scripts\send_email.py`
+- 复用 `C:\Users\Delia\.cc-switch\skills\telegram-notification\scripts\send_telegram.py`（chat_id 固定 6359097393，bot `ai_notifier_pro_bot`）
 - 服务器部署时复制该脚本到项目 `tools/` 目录
-- SMTP 凭据：`secrets.json`（chmod 600），**禁止进 git**
+- 凭据：脚本自带 `config.json`（chmod 600），**禁止进 git**
 - 失败不阻塞主流程（日志记录即可，对应规则19）
 
 ## 6. 重试与降级策略
 
 ```
 akshare 主接口失败 → 重试3次（5s/15s/30s）→ 备用接口（新浪）
-两次均失败 → 当日该数据源标记缺失，走"数据缺失"分支，邮件通知
+两次均失败 → 当日该数据源标记缺失，走"数据缺失"分支，Telegram 通知
 ```
 
 ## 7. 配置
 
 - `config.py`：纯配置（股票池/阈值/费率/路径），不含密钥
-- `secrets.json`：密钥（服务器专属，本地开发用测试账号或留空跳过邮件）
+- `secrets.json`：密钥（服务器专属，本地开发用测试账号或留空跳过推送）
 - 路径统一由 config.py 管理（Windows 本地 vs Linux 服务器差异）
 
 ## 8. 测试策略（阶段1：日志断言 + 单元测试）

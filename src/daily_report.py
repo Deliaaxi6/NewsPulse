@@ -1,4 +1,4 @@
-"""⑤ HTML 报告：情绪总览/决策/持仓/成交 → reports/report_{date}.html，生成后邮件推送。
+"""⑤ HTML 报告：情绪总览/决策/持仓/成交 → reports/report_{date}.html，生成后 Telegram 推送。
 
 图表版 dashboard（2026-08-13 升级）：暗色主题 + KPI 卡片 + Chart.js 3 图
 （情绪趋势/新闻量/情绪分布），模板取自 GitHub 开源 KPI_Analyzer_Dashboard 改造；
@@ -13,7 +13,7 @@ from pathlib import Path
 import pandas as pd
 
 from config import (DATA_DIR, REPORTS_DIR,
-                    EMAIL_SCRIPT, EMAIL_CONFIG, EMAIL_TO, EMAIL_CC)
+                    TG_SCRIPT, TG_CONFIG)
 import cyq
 import select_stock
 import telegram_push
@@ -211,36 +211,34 @@ def _mark_sent(date_str, report_path: Path) -> None:
         print(f"[warn] 推送标记写入失败（不影响推送结果）: {e}")
 
 
-def send_report_email(date_str, report_path: Path) -> bool:
-    """报告生成后推送邮件（复用 send_email.py）。失败仅告警，不中断主流程。
+def send_report_tg(date_str, report_path: Path) -> bool:
+    """报告生成后推送 Telegram（复用 send_telegram.py）。失败仅告警，不中断主流程。
     降噪：同日同内容已推送 → 跳过；标记读写失败 fail-open 照常推送。"""
     if _already_sent(date_str, report_path):
         print(f"[info] {date_str} 报告已推送过（内容指纹一致），跳过重复推送")
         return True
-    script = Path(EMAIL_SCRIPT)
+    script = Path(TG_SCRIPT)
     if not script.exists():
-        print(f"[warn] 邮件脚本不存在 {script}，跳过推送（本地开发可忽略）")
+        print(f"[warn] 推送脚本不存在 {script}，跳过推送（本地开发可忽略）")
         return False
     cmd = [sys.executable, str(script),
-           "--to", EMAIL_TO, "--cc", EMAIL_CC,
            "--event", "idle",
            "--project", "NewsPulse",
            "--message", f"NewsPulse 日报 {date_str} 已生成，请查收附件",
-           "--subject", f"NewsPulse 日报 {date_str}",
            "--attachment", str(report_path),
            "--foreground"]
-    if EMAIL_CONFIG:
-        cmd += ["--config", EMAIL_CONFIG]
+    if TG_CONFIG:
+        cmd += ["--config", TG_CONFIG]
     try:
         r = subprocess.run(cmd, capture_output=True, text=True,
                            encoding="utf-8", errors="replace", timeout=120)
         if r.returncode == 0:
-            print("[ok] 日报邮件已推送")
+            print("[ok] 日报已推送")
             _mark_sent(date_str, report_path)
             return True
-        print(f"[warn] 邮件推送失败: {r.stderr.strip()[:200]}")
+        print(f"[warn] 推送失败: {r.stderr.strip()[:200]}")
     except Exception as e:
-        print(f"[warn] 邮件推送异常: {e}")
+        print(f"[warn] 推送异常: {e}")
     return False
 
 
@@ -306,7 +304,7 @@ def main(date_str=None):
     out = REPORTS_DIR / f"report_{date_str}.html"
     out.write_text(html, encoding="utf-8")
     print(f"[ok] 报告 → {out}")
-    send_report_email(date_str, out)
+    send_report_tg(date_str, out)
     buys = [{"stock": names.get(r["stock"], r["stock"]), "leverage": r["leverage"],
              "reason": r["reason"]} for r in decisions if r.get("signal") == "buy"]
     telegram_push.send_text(

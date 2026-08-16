@@ -1,14 +1,14 @@
-"""轻量告警：Telegram 私聊 + 邮件（复用 send_email.py 脚本）。
+"""轻量告警：Telegram 私聊（直连 API）+ Telegram 脚本通道（复用 send_telegram.py）。
 
 供数据源降级、自动卖出、异常事件等复用。两条通道独立 fail-open：
-Telegram 失败不影响邮件、邮件失败不影响主流程，均只打印告警不抛异常。
+直连失败不影响脚本通道、脚本通道失败不影响主流程，均只打印告警不抛异常。
 """
 import subprocess
 import sys
 from pathlib import Path
 
 import telegram_push
-from config import (EMAIL_SCRIPT, EMAIL_CONFIG, EMAIL_TO, EMAIL_CC)
+from config import TG_SCRIPT, TG_CONFIG
 
 
 def _esc(text: str) -> str:
@@ -17,39 +17,35 @@ def _esc(text: str) -> str:
             .replace(">", "&gt;"))
 
 
-def notify(subject: str, message: str, event="error",
-           to=None, cc=None) -> bool:
-    """发送告警。subject 为标题（邮件主题/Telegram 首行），message 为详情。
+def notify(subject: str, message: str, event="error") -> bool:
+    """发送告警。subject 为标题（Telegram 首行），message 为详情。
     任一通道失败仅告警；返回 True 表示至少一个通道成功。"""
     ok = False
-    to = to or EMAIL_TO
-    cc = cc or EMAIL_CC
     try:
         if telegram_push.send_text(f"<b>{_esc(subject)}</b>\n{_esc(message)}"):
             ok = True
     except Exception as e:
-        print(f"[warn] 告警 Telegram 通道失败: {e}")
-    script = Path(EMAIL_SCRIPT)
+        print(f"[warn] 告警 Telegram 直连通道失败: {e}")
+    script = Path(TG_SCRIPT)
     if script.exists():
         cmd = [sys.executable, str(script),
-               "--to", to, "--cc", cc,
                "--event", event,
                "--project", "NewsPulse",
                "--message", f"{subject}: {message[:500]}",
                "--foreground"]
-        if EMAIL_CONFIG:
-            cmd += ["--config", EMAIL_CONFIG]
+        if TG_CONFIG:
+            cmd += ["--config", TG_CONFIG]
         try:
             r = subprocess.run(cmd, capture_output=True, text=True,
                                encoding="utf-8", errors="replace", timeout=120)
             if r.returncode == 0:
                 ok = True
             else:
-                print(f"[warn] 告警邮件推送失败: {r.stderr.strip()[:200]}")
+                print(f"[warn] 告警脚本推送失败: {r.stderr.strip()[:200]}")
         except Exception as e:
-            print(f"[warn] 告警邮件推送异常: {e}")
+            print(f"[warn] 告警脚本推送异常: {e}")
     else:
-        print(f"[info] 邮件脚本不存在 {script}（本地开发可忽略），仅 Telegram 通道")
+        print(f"[info] 推送脚本不存在 {script}（本地开发可忽略），仅直连通道")
     return ok
 
 

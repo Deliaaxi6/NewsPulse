@@ -4,7 +4,7 @@
   读取（config.py），未配置 → 跳过推送（fail-open，不阻断主流程）
 - 国内网络需代理：默认走本地 Clash 混合端口 http://127.0.0.1:7897
   （实测 api.telegram.org 经此端口可达），可用 NEWSPULSE_TG_PROXY 覆盖或置空禁用
-- 失败仅告警不抛异常（与 G8/邮件推送 fail-open 风格一致）
+- 失败仅告警不抛异常（与告警/推送 fail-open 风格一致）
 """
 import sys
 import time

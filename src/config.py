@@ -9,13 +9,11 @@ LOGS_DIR = BASE_DIR / "logs"
 for d in (DATA_DIR, REPORTS_DIR, LOGS_DIR):
     d.mkdir(parents=True, exist_ok=True)
 
-# 邮件推送（复用 send_email.py，密钥在其 config.json，不进 git / 不硬编码）
-EMAIL_SCRIPT = os.environ.get(
-    "NEWSPULSE_EMAIL_SCRIPT",
-    r"C:\Users\Delia\.cc-switch\skills\email-notification\scripts\send_email.py")
-EMAIL_CONFIG = os.environ.get("NEWSPULSE_EMAIL_CONFIG", "")  # 服务器部署时指定 secrets/email_config.json
-EMAIL_TO = os.environ.get("NEWSPULSE_EMAIL_TO", "228396705@qq.com")
-EMAIL_CC = os.environ.get("NEWSPULSE_EMAIL_CC", "deliaaxi6@gmail.com")
+# Telegram 推送（复用 send_telegram.py，chat_id/token 在其 config.json，不进 git / 不硬编码）
+TG_SCRIPT = os.environ.get(
+    "NEWSPULSE_TG_SCRIPT",
+    r"C:\Users\Delia\.cc-switch\skills\telegram-notification\scripts\send_telegram.py")
+TG_CONFIG = os.environ.get("NEWSPULSE_TG_CONFIG", "")  # 服务器部署时指定 secrets/tg_config.json
 
 # Telegram 推送（Phase 3）：token/chat_id 从环境变量读取（服务器 secrets.json 注入），
 # 不硬编码不进 git；未配置则跳过推送（fail-open）。走本地代理出墙（默认 Clash 7897）。

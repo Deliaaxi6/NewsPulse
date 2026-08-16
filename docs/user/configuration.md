@@ -67,15 +67,12 @@ KEYWORDS_NEUT  = ["澄清", "回应", "说明", "例行", "公告"]
 
 ```json
 {
-  "smtp_host": "smtp.qq.com",
-  "smtp_port": 465,
-  "smtp_user": "228396705@qq.com",
-  "smtp_auth_code": "你的授权码",
-  "email_to": "228396705@qq.com",
-  "email_cc": "deliaaxi6@gmail.com"
+  "NEWSPULSE_TG_SCRIPT": "/opt/newspulse/tools/send_telegram.py",
+  "NEWSPULSE_TG_CONFIG": "/opt/newspulse/secrets/tg_config.json",
+  "TG_PROXY": "http://127.0.0.1:7897"
 }
 ```
 
 - 权限 `chmod 600`，不进 git（`.gitignore` 已排除）
-- 授权码在 QQ 邮箱"设置→账户→开启SMTP"处获取/重置
+- Bot Token / chat_id 放 `tg_config.json`（复用 `send_telegram.py --config` 指定）
 - 修改后无需重启，下次运行自动生效

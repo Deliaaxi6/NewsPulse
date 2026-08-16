@@ -21,7 +21,7 @@ NewsPulse 是一套**全自动学习型量化模拟交易系统**：每天收盘
 | 处理 | pandas（纯 CSV 存储，人眼可读） |
 | 调度 | crontab |
 | 报告 | 静态 HTML（零安全面） |
-| 通知 | 邮件（复用 send_email.py） |
+| 通知 | Telegram（复用 send_telegram.py） |
 
 ## 数据流
 
