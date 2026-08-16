@@ -21,7 +21,7 @@ run_all.py (入口)
    ├─ ④ sim_account.py ──→ data/portfolio.csv + data/trade_log.csv
    │       portfolio: date,stock,shares,cost,market_value,cash,leverage,total_value
    │       trade_log: date,stock,action,price,shares,amount,leverage,reason
-   │       输入: decision_{date}.csv + 次日开盘价
+   │       输入: decision_{date}.csv + 当日实时行情
    │
    └─ ⑤ daily_report.py ──→ reports/report_{date}.html + Telegram 推送
            输入: 当日全部 CSV
@@ -50,7 +50,7 @@ run_all.py (入口)
 
 ## 3. 模拟撮合引擎
 
-- 成交价：信号次日开盘价（akshare 获取）
+- 成交价：信号当日实时价（9:05 快照，近似开盘价）
 - T+1：当日买入不可当日卖出（用 trade_log 校验）
 - 费用：佣金 = max(金额×0.00025, 5元)；印花税 = 卖出金额×0.0005
 - 仓位限制：单票 ≤30% 总资产；总仓 ≤90%；剩余为现金
