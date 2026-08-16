@@ -34,6 +34,12 @@
 
 ## 会话日志（从设计阶段开始记录）
 
+### 2026-08-15 — 邮件→Telegram 迁移提交并全量同步服务器
+- ✅ 提交遗留迁移改动 84f39a4（config/alert/daily_report/weekly_review → send_telegram.py 通道，fail-open 保留）
+- ✅ 服务器部署：scripts/send_telegram.py + secrets/tg_config.json（token 从 secrets.env 环境提取，chmod 600）+ secrets.env 追加 NEWSPULSE_TG_SCRIPT/TG_CONFIG/http_proxy/https_proxy（服务器直连 TG 不通，urllib 走 127.0.0.1:7897）
+- ✅ 同步 9 个源/测试文件 + test_telegram_control.py（此前漏同步导致 daemon 迭代断言失败）；22 套件服务器 ALL PASSED；本地↔服务器逻辑内容哈希一致
+- ⚠️ 坑：secrets.env 为 export 格式，grep '^KEY=' 匹配不到（行首是 export）→ 需 `source` 后取环境变量
+
 ### 2026-08-15 — 缺陷清扫（journald / 文档 / 同日同股测试）
 - ✅ 修复服务器 journald（已死 3 个月，系统日志全丢）：enable+start 后 journal 恢复；daemon 日志已走文件不受影响
 - ✅ CLAUDE.md 修正"前 20 天预热期不交易"（代码无此门槛，旧文档误导）——ML 因子 ≥20 交易日自动启用但不闸门交易
