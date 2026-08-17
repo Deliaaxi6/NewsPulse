@@ -61,20 +61,55 @@ def send_to_channel(text: str, token=None, proxies=None, timeout=20) -> bool:
                      proxies=proxies, timeout=timeout)
 
 
+_SEP = "━━━━━━━━━━━━"
+
+
+def _compact_reason(reason: str, max_items: int = 3) -> str:
+    """决策 reason 压缩：形态/技术面等斜杠列表只保留前 max_items 项 + 等N种，
+    其余段落原样保留，段落间以 " · " 连接。纯函数，可单测。"""
+    if not reason:
+        return ""
+    parts = []
+    for seg in str(reason).split("|"):
+        seg = seg.strip()
+        if not seg:
+            continue
+        if ":" in seg:
+            label, rest = seg.split(":", 1)
+            rest = rest.strip()
+            if "/" in rest:
+                items = [x for x in rest.split("/") if x]
+                if len(items) > max_items:
+                    rest = "/".join(items[:max_items]) + f"等{len(items)}种"
+            parts.append(f"{label.strip()}:{rest}")
+        else:
+            parts.append(seg)
+    return " · ".join(parts)
+
+
 def report_summary(date_str: str, score: float, total: int, pos: int, neg: int,
                    assets: float, decision_count: int,
                    buys: list | None = None) -> str:
-    """日报摘要文本（HTML：<b> 加粗）。buys: 买入信号记录列表（含 stock/leverage/reason）。"""
+    """日报摘要文本（KPI 分区块 + 买入信号精简行）。buys: {stock/leverage/reason}。"""
     buys = buys or []
-    head = (f"<b>NewsPulse 日报 {date_str}</b>\n"
-            f"情绪分 {score:+.2f} · 利好 {pos} / 利空 {neg} · 新闻 {total}\n"
-            f"总资产 {assets:,.0f} · 决策 {decision_count} 只")
-    warn = (f"\n<b>⚠️ 今日利空主导</b>（情绪分 {score:+.2f}，"
-            f"利空 {neg} / 利好 {pos}），注意持仓风险" if score <= BEARISH_SCORE else "")
+    rows = [
+        f"📊 <b>NewsPulse 日报 {date_str}</b>",
+        _SEP,
+        f"😀 情绪分 <b>{score:+.2f}</b> · 利好 {pos} / 利空 {neg}",
+        f"📰 新闻 {total} 条 · 🎯 决策 {decision_count} 只",
+        f"💰 总资产 <b>{assets:,.0f}</b>",
+    ]
+    if score <= BEARISH_SCORE:
+        rows.append(f"⚠️ 利空主导（情绪分 {score:+.2f}，利空 {neg} / 利好 {pos}），注意持仓风险")
+    rows.append(_SEP)
     if buys:
-        lines = [f"  {b['stock']} {b.get('leverage', 1)}倍 · {b['reason']}" for b in buys]
-        return head + warn + "\n<b>买入信号:</b>\n" + "\n".join(lines)
-    return head + warn + "\n无买入信号，观望为主"
+        rows.append(f"🟢 买入信号 ({len(buys)})")
+        for b in buys:
+            rows.append(f"▸ <b>{b['stock']}</b> {b.get('leverage', 1)}倍")
+            rows.append(f"  {_compact_reason(b.get('reason', ''))}")
+    else:
+        rows.append("⚪ 无买入信号，观望为主")
+    return "\n".join(rows)
 
 
 def main(date_str=None, score=None, assets=None, buys=None):

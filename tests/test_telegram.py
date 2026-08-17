@@ -20,9 +20,11 @@ def _resp(status, ok=None, text=""):
 
 def main() -> int:
     fails = 0
+    total = 0
 
     def check(name, cond, note=""):
-        nonlocal fails
+        nonlocal fails, total
+        total += 1
         fails += 0 if cond else 1
         print(f"[{'OK' if cond else 'FAIL'}] {name} {note}")
 
@@ -111,6 +113,21 @@ def main() -> int:
     check("利空提醒 恰好 -0.1 触发（<=）",
           "利空主导" in s6, "")
 
+    # --- reason 压缩（KPI 风摘要） ---
+    long_reason = ("情绪0.33>0.3 且 华正新材涨10.00% | 个股情绪: +0.33(9条) | "
+                   "技术面: KDJ超买/RSI超买/突破布林上轨 | "
+                   "形态: 捉腰带线/收盘缺影线/十字/风高浪大线/陷阱/长脚十字 | "
+                   "资金面: 两融余额回升+1.63%")
+    cr = tp._compact_reason(long_reason)
+    check("reason压缩 长列表截断", "等6种" in cr and "捉腰带线/收盘缺影线/十字" in cr, cr)
+    check("reason压缩 短列表保留", "KDJ超买/RSI超买/突破布林上轨" in cr and "等3种" not in cr, cr)
+    check("reason压缩 无冒号段保留", "华正新材涨10.00%" in cr, cr)
+    check("reason压缩 空值", tp._compact_reason("") == "" and tp._compact_reason(None) == "")
+    s7 = tp.report_summary("2026-08-14", 0.33, 361, 58, 12, 83240.0, 20,
+                           [{"stock": "华正新材", "leverage": 1, "reason": long_reason}])
+    check("KPI摘要 分区块行", "📊" in s7 and "😀" in s7 and "📰" in s7 and "💰" in s7, s7)
+    check("KPI摘要 信号两行式", "▸ <b>华正新材</b> 1倍" in s7 and "等6种" in s7, s7)
+
     with mock.patch("telegram_push.TELEGRAM_CHANNEL", ""), \
          mock.patch("telegram_push.requests.post") as post:
         ok = tp.send_to_channel("hi")
@@ -129,7 +146,7 @@ def main() -> int:
         ok = tp.send_to_channel("hi")
         check("频道推送失败返回 False 不抛异常", ok is False)
 
-    print(f"telegram: {18 - fails}/18 passed")
+    print(f"telegram: {total - fails}/{total} passed")
     return 1 if fails else 0
 
 
