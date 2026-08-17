@@ -47,6 +47,84 @@ def main() -> int:
     check("快照过滤 缺列容错", len(select_stock._filter_market_df(pd.DataFrame(
         [{"代码": "600001", "名称": "正常股"}]))) == 1)
 
+    # --- 新浪快照降级源：列转换（mock 分页请求） ---
+    import json as _json
+
+    class FakeResp:
+        def __init__(self, text):
+            self.text = text
+
+        def raise_for_status(self):
+            pass
+
+    pages = [
+        [{"symbol": "sh600001", "name": "甲股", "changepercent": "3.2",
+          "amount": "50000", "volume_ratio": "2.5"},
+         {"symbol": "sz000002", "name": "乙股", "changepercent": "2.1",
+          "amount": "30000"}],
+        [{"symbol": "sz000003", "name": "丙股", "changepercent": "1.0",
+          "amount": "20000", "volume_ratio": "1.8"}],
+    ]
+    import select_stock as _ss
+
+    def fake_get(url, params, timeout):
+        return FakeResp(_json.dumps(pages[params["page"] - 1] if params["page"] <= len(pages) else []))
+
+    _ss.requests.get = fake_get
+    snap_sina = _ss._sina_spot()
+    check("新浪 代码截取", list(snap_sina["代码"]) == ["600001", "000002", "000003"])
+    check("新浪 成交额万元转元", snap_sina.iloc[0]["成交额"] == 5e8)
+    check("新浪 缺量比填NaN", pd.isna(snap_sina.iloc[1]["量比"]))
+    check("新浪 过滤（NaN量比通过）", set(_ss._filter_market_df(snap_sina)["代码"]) == {"600001", "000002"})
+    fake_get_empty = lambda url, params, timeout: FakeResp("[]")
+    _ss.requests.get = fake_get_empty
+    try:
+        _ss._sina_spot()
+        check("新浪 全空页抛异常", False)
+    except ValueError:
+        check("新浪 全空页抛异常", True)
+
+    # --- 东财备用子域：clist JSON → 东财列结构（mock 翻页 + 子域轮换） ---
+    em_payload = {"data": {"diff": [
+        {"f12": "600001", "f14": "甲股", "f3": 3.2, "f10": 2.5, "f6": 5e8},
+        {"f12": "000002", "f14": "乙股", "f3": 2.1, "f10": 1.2, "f6": 3e8},
+        {"f12": "600003", "f14": "*ST退", "f3": 3.0, "f10": 2.0, "f6": 4e8},
+    ], "total": 3}}
+    calls = []
+
+    def fake_em_get(url, params, timeout):
+        calls.append((url, params["pn"], params["fid"]))
+        if params["pn"] >= 2:
+            return FakeResp(_json.dumps({"data": {"diff": [], "total": 3}}))
+        return FakeResp(_json.dumps(em_payload))
+
+    _ss.requests.get = fake_em_get
+    snap_em = _ss._em_spot_alt(("83.push2", "push2delay"))
+    check("备用子域 代码列", list(snap_em["代码"]) == ["600001", "000002", "600003"])
+    check("备用子域 成交额原值", snap_em.iloc[0]["成交额"] == 5e8)
+    check("备用子域 过滤ST/低量比", set(_ss._filter_market_df(snap_em)["代码"]) == {"600001"})
+    check("备用子域 fid=f3请求", calls[0][2] == "f3")
+
+    def fake_em_fail(url, params, timeout):
+        if "83.push2" in url:
+            raise ConnectionError("bad node")
+        calls.append((url, params["pn"], params["fid"]))
+        if params["pn"] >= 2:
+            return FakeResp(_json.dumps({"data": {"diff": [], "total": 3}}))
+        return FakeResp(_json.dumps(em_payload))
+
+    _ss.requests.get = fake_em_fail
+    snap_em2 = _ss._em_spot_alt(("83.push2", "push2delay"))
+    check("备用子域 页失败换子域重试", len(snap_em2) == 3)
+    check("备用子域 换子域计数", any("push2delay" in u for u, p, f in calls))
+    _ss.requests.get = lambda url, params, timeout: FakeResp(_json.dumps({"data": {"diff": []}}))
+    try:
+        _ss._em_spot_alt(("83.push2",))
+        check("备用子域 空diff抛异常", False)
+    except ValueError:
+        check("备用子域 空diff抛异常", True)
+    del _ss.requests.get
+
     # --- 方案C：池合并（涨停池优先/去重/排序截断） ---
     zt = [
         {"symbol": "600519", "name": "茅台", "lbc": 2, "seal_amount": 5e8, "source": "zt"},

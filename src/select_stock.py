@@ -12,6 +12,7 @@ import time
 import datetime as dt
 
 import pandas as pd
+import requests
 
 from config import DATA_DIR
 import fund_flow
@@ -26,6 +27,15 @@ MARKET_PCT_MIN = 0.0
 MARKET_PCT_MAX = 9.9
 MARKET_VOL_RATIO = 1.5
 MARKET_AMOUNT_MIN = 2e8
+# 新浪全市场快照降级源（东财 clist 被拒时）：按涨幅排序分页拉取，1页100只
+SINA_SPOT_PAGES = 30
+SINA_SPOT_URL = ("http://vip.stock.finance.sina.com.cn/quotes_service/api/"
+                 "json_v2.php/Market_Center.getHQNodeData")
+# 东财 clist 备用子域（82.push2 出口被封时轮换；走 mihomo 负载均衡组约半节点可用）
+EM_ALT_HOSTS = ("83.push2", "push2delay")
+EM_CLIST_FIELDS = "f2,f3,f5,f6,f10,f12,f14"
+EM_CLIST_FS = "m:0 t:6,m:0 t:80,m:1 t:2,m:1 t:23,m:0 t:81 s:2048"
+EM_CLIST_PAGES = 30  # fid=f3 涨幅降序前 30 页（3000 只），覆盖 0~9.9% 过滤区间
 
 
 def _retry(func, tries=3, waits=(5, 15, 30), *args, **kwargs):
@@ -67,18 +77,96 @@ def _filter_market_df(df: pd.DataFrame) -> pd.DataFrame:
     if "涨跌幅" in out.columns:
         out = out[(out["涨跌幅"] > MARKET_PCT_MIN) & (out["涨跌幅"] < MARKET_PCT_MAX)]
     if "量比" in out.columns:
-        out = out[out["量比"] > MARKET_VOL_RATIO]
+        out = out[(out["量比"].isna()) | (out["量比"] > MARKET_VOL_RATIO)]
     if "成交额" in out.columns:
         out = out[out["成交额"] > MARKET_AMOUNT_MIN]
     return out
 
 
+def _em_spot_alt(hosts: tuple) -> pd.DataFrame:
+    """东财全市场快照备用子域（83.push2 / push2delay 轮换）：fid=f3 涨幅降序翻页，
+    每页失败自动换下一个子域重试（应对 mihomo 负载均衡节点随机性），
+    转换为东财 spot_em 列结构。全部翻页失败抛异常。"""
+    import json
+
+    rows = []
+    for page in range(1, EM_CLIST_PAGES + 1):
+        got = False
+        for i, host in enumerate(hosts):
+            try:
+                params = {"pn": page, "pz": 100, "po": 1, "np": 1,
+                          "ut": "bd1d9ddb04089700cf9c27f6f7426281",
+                          "fltt": 2, "invt": 2, "fid": "f3",
+                          "fs": EM_CLIST_FS, "fields": EM_CLIST_FIELDS}
+                r = requests.get(f"https://{host}.eastmoney.com/api/qt/clist/get",
+                                 params=params, timeout=30)
+                r.raise_for_status()
+                diff = json.loads(r.text)["data"]["diff"]
+                if not diff:
+                    return _to_em_df(rows)
+                rows.extend(diff)
+                got = True
+                break
+            except Exception:
+                if i == len(hosts) - 1:
+                    raise ValueError(f"东财备用快照翻页失败 page={page}")
+        if not got:
+            raise ValueError(f"东财备用快照翻页失败 page={page}")
+    return _to_em_df(rows)
+
+
+def _to_em_df(rows: list) -> pd.DataFrame:
+    """clist diff 行列表 → 东财 spot_em 列结构（纯函数，可单测）。"""
+    df = pd.DataFrame(rows)
+    return pd.DataFrame({
+        "代码": df["f12"].astype(str),
+        "名称": df["f14"].astype(str),
+        "涨跌幅": pd.to_numeric(df.get("f3"), errors="coerce"),
+        "量比": pd.to_numeric(df.get("f10"), errors="coerce"),
+        "成交额": pd.to_numeric(df.get("f6"), errors="coerce"),
+    })
+
+
+def _sina_spot() -> pd.DataFrame:
+    """新浪全市场快照（按涨幅排序取前 SINA_SPOT_PAGES 页），转换为东财列结构。
+    新浪源无量比字段（填 NaN，过滤时跳过）；amount 为万元（×1e4 转元）。
+    数据全为空时抛异常（由 try_chain 判定源失败）。"""
+    import json
+
+    rows = []
+    for page in range(1, SINA_SPOT_PAGES + 1):
+        r = requests.get(SINA_SPOT_URL, params={"page": page, "num": 100,
+                                                "sort": "changepercent",
+                                                "asc": 0, "node": "hs_a"},
+                         timeout=20)
+        r.raise_for_status()
+        data = json.loads(r.text)
+        if not data:
+            break
+        rows.extend(data)
+    if not rows:
+        raise ValueError("新浪快照为空")
+    df = pd.DataFrame(rows)
+    return pd.DataFrame({
+        "代码": df["symbol"].astype(str).str[-6:],
+        "名称": df["name"].astype(str),
+        "涨跌幅": pd.to_numeric(df.get("changepercent"), errors="coerce"),
+        "量比": pd.to_numeric(df.get("volume_ratio"), errors="coerce"),
+        "成交额": pd.to_numeric(df.get("amount"), errors="coerce").mul(1e4),
+    })
+
+
 def _market_pool(date_str: str) -> list:
-    """全市场快照过滤池（东财一次请求）：过滤后按成交额取前 MAX_SCAN。失败返回 []。"""
+    """全市场快照过滤池：东财官方子域 → 备用子域轮换 → 新浪分页降级（各源多次重试，
+    覆盖 mihomo 负载均衡节点随机性）。全部源失败返回 []（涨停池兜底）。"""
     import akshare as ak
 
     try:
-        df = net_guard.try_chain("东财快照", [("em", lambda: ak.stock_zh_a_spot_em())])
+        df = net_guard.try_chain("东财快照",
+                                 [("em", lambda: ak.stock_zh_a_spot_em()),
+                                  ("em_alt", lambda: _em_spot_alt(EM_ALT_HOSTS)),
+                                  ("sina", _sina_spot)],
+                                 retries=2)
         f = _filter_market_df(df)
         if f.empty:
             print("[warn] 全市场快照过滤后为空，仅用涨停池")
