@@ -220,7 +220,7 @@ def test_pending_merge(td: Path) -> int:
     state = {"cash": 100000.0, "positions": {"600519": {"shares": 500,
                                                         "cost": 9.0, "leverage": 1}}}
     logs = []
-    with mock.patch("sim_account.DATA_DIR", td):
+    with mock.patch("sim_account.DATA_DIR", td), mock.patch("sim_account.alert.notify"):
         sim_account.run_orders(state, decisions, quotes, "2026-08-15", logs, pool)
     check("买入 3000 元金额限", any(l["action"] == "buy" and l["stock"] == "600519"
           and 0 < l["amount"] <= 3000 and l["shares"] % 100 == 0 for l in logs),
@@ -239,7 +239,7 @@ def test_pending_merge(td: Path) -> int:
         {"stock": "600519", "signal": "buy", "leverage": 1,
          "reason": "Telegram 手动买入 [指令#9]", "cap_amount": 2000.0},
     ]
-    with mock.patch("sim_account.DATA_DIR", td):
+    with mock.patch("sim_account.DATA_DIR", td), mock.patch("sim_account.alert.notify"):
         sim_account.run_orders(state2, dec2, quotes, "2026-08-15", logs2, pool)
     pos2 = state2["positions"]["600519"]
     check("同日系统+手动买入累加", len(logs2) == 2
