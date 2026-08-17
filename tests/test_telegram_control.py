@@ -144,6 +144,66 @@ def main():
                 pass
         check("daemon 正常迭代", pp.call_count == 3 and pp.call_args[1]["long_poll"] == 1)
 
+        # --- 双通道 failover：直连连续失败 → 切兜底代理 ---
+        tc._MODE, tc._FAIL_STREAK, tc._OK_STREAK = "direct", 0, 0
+        tc.FAILOVER_AFTER = 3
+        with mock.patch("telegram_control.requests.get",
+                        side_effect=Exception("conn err")), \
+             mock.patch("telegram_control.TELEGRAM_BOT_TOKEN", "tok"), \
+             mock.patch("telegram_control.TELEGRAM_CHAT_ID", MY_CHAT), \
+             mock.patch("telegram_control.telegram_push.send_text"), \
+             mock.patch("telegram_control.TELEGRAM_FALLBACK_PROXY",
+                        "http://127.0.0.1:7897"):
+            for i in range(3):
+                tc.poll_once()
+        check("failover 连续失败切代理", tc._MODE == "proxy"
+              and tc._proxy() == {"http": "http://127.0.0.1:7897",
+                                  "https": "http://127.0.0.1:7897"},
+              f"mode={tc._MODE}")
+
+        # --- 代理模式连续成功 → 探测直连 → 切回 ---
+        tc.PROBE_AFTER = 2
+        fake3 = mock.Mock()
+        fake3.raise_for_status.return_value = None
+        fake3.json.return_value = {"result": []}
+        with mock.patch("telegram_control.requests.get", return_value=fake3) as rget, \
+             mock.patch("telegram_control.TELEGRAM_BOT_TOKEN", "tok"), \
+             mock.patch("telegram_control.TELEGRAM_CHAT_ID", MY_CHAT), \
+             mock.patch("telegram_control.telegram_push.send_text"):
+            for i in range(3):
+                tc.poll_once()
+        check("failover 代理成功切回直连", tc._MODE == "direct"
+              and any("getMe" in str(a) for a in rget.call_args_list),
+              f"mode={tc._MODE}")
+
+        # --- 短时抖动不切换（失败未达阈值） ---
+        tc._MODE, tc._FAIL_STREAK, tc._OK_STREAK = "direct", 0, 0
+        tc.FAILOVER_AFTER = 5
+        with mock.patch("telegram_control.requests.get",
+                        side_effect=Exception("conn err")), \
+             mock.patch("telegram_control.TELEGRAM_BOT_TOKEN", "tok"), \
+             mock.patch("telegram_control.TELEGRAM_CHAT_ID", MY_CHAT), \
+             mock.patch("telegram_control.telegram_push.send_text"):
+            for i in range(2):
+                tc.poll_once()
+        check("failover 抖动不切换", tc._MODE == "direct")
+
+        # --- daemon 心跳（每 300 轮一次） ---
+        with mock.patch("telegram_control.poll_once",
+                        side_effect=[0] * 300 + [KeyboardInterrupt()]) as pp, \
+             mock.patch("telegram_control.time.sleep"), \
+             mock.patch("telegram_control.print") as pr:
+            try:
+                tc.daemon()
+            except KeyboardInterrupt:
+                pass
+        check("daemon 心跳输出", any("心跳" in str(a) for a in pr.call_args_list),
+              f"calls={len(pr.call_args_list)}")
+
+        tc._MODE, tc._FAIL_STREAK, tc._OK_STREAK = "direct", 0, 0
+        tc.FAILOVER_AFTER = 5
+        tc.PROBE_AFTER = 20
+
     print(f"telegram_control: {n}/{n} passed")
     return 0 if f == 0 else 1
 

@@ -23,7 +23,7 @@ import requests
 import pandas as pd
 
 from config import (DATA_DIR, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID,
-                    TELEGRAM_API_BASE, TELEGRAM_PROXY)
+                    TELEGRAM_API_BASE, TELEGRAM_PROXY, TELEGRAM_FALLBACK_PROXY)
 import telegram_push
 
 CMD_RE = {
@@ -37,9 +37,43 @@ MAX_ORDER_AMOUNT = 30000.0  # 单笔指令金额上限（模拟盘，撮合层�
 PENDING_FILE = DATA_DIR / "pending_orders.csv"
 OFFSET_FILE = DATA_DIR / "tg_offset.txt"
 
+# 双通道 failover：直连（主）连续失败 FAILOVER_AFTER 次 → 切兜底代理；
+# 代理模式连续成功 PROBE_AFTER 次后探测直连，恢复即切回。
+_MODE = "direct"          # "direct" | "proxy"
+_FAIL_STREAK = 0          # 当前模式连续失败次数
+_OK_STREAK = 0            # 当前模式连续成功次数（仅代理模式用于探测节流）
+FAILOVER_AFTER = 5
+PROBE_AFTER = 20
+
 
 def _proxy():
+    if _MODE == "proxy":
+        return ({"http": TELEGRAM_FALLBACK_PROXY, "https": TELEGRAM_FALLBACK_PROXY}
+                if TELEGRAM_FALLBACK_PROXY else None)
     return {"http": TELEGRAM_PROXY, "https": TELEGRAM_PROXY} if TELEGRAM_PROXY else None
+
+
+def _probe_direct() -> bool:
+    """代理模式下用 getMe 轻量探测直连是否恢复（无 getUpdates 副作用）。"""
+    try:
+        requests.get(f"{TELEGRAM_API_BASE}/bot{TELEGRAM_BOT_TOKEN}/getMe",
+                     timeout=10).raise_for_status()
+        return True
+    except Exception:
+        return False
+
+
+def _switch_mode():
+    global _MODE, _FAIL_STREAK, _OK_STREAK
+    _MODE = "proxy" if _MODE == "direct" else "direct"
+    _FAIL_STREAK = 0
+    _OK_STREAK = 0
+    print(f"[warn] Telegram 通道自动切换: {_MODE} 模式", flush=True)
+    try:
+        telegram_push.send_text(f"[NewsPulse] Telegram 通道故障自动切换：当前 {_MODE} 模式",
+                                chat_id=TELEGRAM_CHAT_ID)
+    except Exception:
+        pass
 
 
 def _load_offset() -> int:
@@ -175,6 +209,7 @@ def _handle(text: str) -> str:
 def poll_once(long_poll: int = 1) -> int:
     """拉取并处理新消息，返回处理条数。未配置 token / 网络失败 fail-open 返回 0。
     long_poll：getUpdates 长轮询秒数（crontab 短轮询 1s；常驻 daemon 25s）。"""
+    global _FAIL_STREAK, _OK_STREAK
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
         print("[info] Telegram 未配置，跳过指令轮询")
         return 0
@@ -186,8 +221,16 @@ def poll_once(long_poll: int = 1) -> int:
             proxies=_proxy(), timeout=long_poll + 15)
         r.raise_for_status()
         updates = r.json().get("result", [])
+        _FAIL_STREAK = 0
+        _OK_STREAK += 1
+        if _MODE == "proxy" and _OK_STREAK >= PROBE_AFTER:
+            if _probe_direct():
+                _switch_mode()
     except Exception as e:
+        _FAIL_STREAK += 1
         print(f"[warn] getUpdates 失败: {e}")
+        if _FAIL_STREAK >= FAILOVER_AFTER:
+            _switch_mode()
         return 0
     n = 0
     for u in updates:
@@ -215,6 +258,7 @@ def daemon():
     代理链路对长挂起连接黑洞（实测 25s 长轮询被 mihomo 挂死），
     短请求可稳定通过；消息延迟 <2s，仍满足"秒级响应"。"""
     print("[ok] daemon 短轮询启动（timeout=1s）", flush=True)
+    beats = 0
     while True:
         try:
             n = poll_once(long_poll=1)
@@ -222,6 +266,9 @@ def daemon():
                 print(f"[ok] 处理 {n} 条新消息", flush=True)
         except Exception as e:
             print(f"[warn] 轮询异常（1s 后继续）: {e}", flush=True)
+        beats += 1
+        if beats % 300 == 0:
+            print(f"[ok] 心跳 模式={_MODE} 连续失败={_FAIL_STREAK}", flush=True)
         time.sleep(1)
 
 

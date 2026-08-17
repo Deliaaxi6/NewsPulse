@@ -21,6 +21,9 @@ TELEGRAM_BOT_TOKEN = os.environ.get("NEWSPULSE_TG_TOKEN", "")
 TELEGRAM_CHAT_ID = os.environ.get("NEWSPULSE_TG_CHAT_ID", "")
 TELEGRAM_API_BASE = os.environ.get("NEWSPULSE_TG_API", "https://api.telegram.org")
 TELEGRAM_PROXY = os.environ.get("NEWSPULSE_TG_PROXY", "http://127.0.0.1:7897")
+# 兜底代理（双通道 failover）：直连连续失败后自动切换的备用通道，可被环境变量覆盖
+TELEGRAM_FALLBACK_PROXY = os.environ.get("NEWSPULSE_TG_FALLBACK_PROXY",
+                                         "http://127.0.0.1:7897")
 # 频道推送（Phase 3）：@username 或频道 ID（负 ID），未配置则只推私聊/群聊 chat_id
 TELEGRAM_CHANNEL = os.environ.get("NEWSPULSE_TG_CHANNEL", "")
 
