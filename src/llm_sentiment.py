@@ -19,7 +19,7 @@ BATCH = 15
 MAX_FAIL_BATCHES = 3
 PROMPT = (
     "你是A股新闻情绪分析师。对每条新闻给出标签：bull(利好)/bear(利空)/neutral(中性)。\n"
-    "严格输出 JSON 数组，每个元素形如 {\"label\": \"bull\", \"confidence\": 0.8}，"
+    "严格输出 JSON 对象 {\"results\": [{\"label\": \"bull\", \"confidence\": 0.8}, ...]}，"
     "与输入新闻一一对应，不要输出任何其他内容。")
 
 
@@ -71,11 +71,21 @@ def _call_api(batch_texts: list) -> list | None:
                       json=payload, timeout=60)
     r.raise_for_status()
     content = r.json()["choices"][0]["message"]["content"]
-    items = json.loads(content)
+    data = json.loads(content)
+    items = data if isinstance(data, list) else _unwrap_obj(data)
     labels = [x["label"] for x in items]
     if len(labels) != len(batch_texts):
         raise ValueError(f"label 数量不匹配: {len(labels)} vs {len(batch_texts)}")
     return labels
+
+
+def _unwrap_obj(data: dict) -> list:
+    """response_format=json_object 时 LLM 可能用对象包装数组，兼容常见 key。"""
+    for key in ("results", "data", "news", "items"):
+        v = data.get(key)
+        if isinstance(v, list):
+            return v
+    raise ValueError(f"LLM 返回对象无法解析: {str(data)[:120]}")
 
 
 def classify_batch(rows: list, date_str: str | None = None) -> dict:

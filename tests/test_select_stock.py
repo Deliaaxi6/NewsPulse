@@ -66,6 +66,7 @@ def main() -> int:
           "amount": "20000", "volume_ratio": "1.8"}],
     ]
     import select_stock as _ss
+    _orig_get = _ss.requests.get
 
     def fake_get(url, params, timeout):
         return FakeResp(_json.dumps(pages[params["page"] - 1] if params["page"] <= len(pages) else []))
@@ -123,7 +124,7 @@ def main() -> int:
         check("备用子域 空diff抛异常", False)
     except ValueError:
         check("备用子域 空diff抛异常", True)
-    del _ss.requests.get
+    _ss.requests.get = _orig_get
 
     # --- 方案C：池合并（涨停池优先/去重/排序截断） ---
     zt = [

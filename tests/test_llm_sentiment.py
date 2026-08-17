@@ -1,4 +1,5 @@
 """LLM 新闻分类回归测试（9 用例）：未配置跳过 / 缓存幂等 / 成功映射 / 批失败降级 / 熔断 / 集成覆盖。"""
+import json
 import sys
 import unittest.mock as mock
 from pathlib import Path
@@ -75,6 +76,26 @@ def main() -> int:
         out = ls.classify_batch(rows, "2099-01-05")
         check("JSON 解析失败降级", out == {})
         check("JSON 失败告警", nt.call_count == 1, str(nt.call_count))
+
+    resp_obj = mock.Mock()
+    resp_obj.json.return_value = {"choices": [{"message": {"content":
+        json.dumps({"results": [{"label": x, "confidence": 0.8} for x in
+                                 ["bull", "bear", "neutral", "bull", "bear"]]})}}]}
+    with mock.patch("llm_sentiment.DEEPSEEK_API_KEY", "k1"), \
+         mock.patch("llm_sentiment.requests.post", return_value=resp_obj):
+        out = ls.classify_batch(rows, "2099-01-08")
+        check("对象包装(results)兼容",
+              out == {0: "bull", 1: "bear", 2: "neutral", 3: "bull", 4: "bear"}, str(out))
+
+    resp_empty = mock.Mock()
+    resp_empty.json.return_value = {"choices": [{"message": {"content":
+        json.dumps({"results": []})}}]}
+    with mock.patch("llm_sentiment.DEEPSEEK_API_KEY", "k1"), \
+         mock.patch("llm_sentiment.requests.post", return_value=resp_empty), \
+         mock.patch("llm_sentiment.alert.notify") as nt:
+        out = ls.classify_batch(rows, "2099-01-09")
+        check("空 results 数量不匹配降级", out == {})
+        check("空 results 告警", nt.call_count == 1, str(nt.call_count))
 
     import filter_news as fn
     import pandas as pd
