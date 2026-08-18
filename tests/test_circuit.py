@@ -14,6 +14,8 @@ def _reset(td: Path):
 
 def main() -> int:
     fails = 0
+    orig_notify = cb.alert.notify
+    cb.alert.notify = lambda *a, **k: None
     with tempfile.TemporaryDirectory() as td:
         _reset(Path(td))
 
@@ -85,6 +87,7 @@ def main() -> int:
         check("恢复后杠杆解锁", cb.leverage_cap() == 99)
 
         cb.STATE_FILE.unlink(missing_ok=True)
+    cb.alert.notify = orig_notify
     print(f"circuit: {14 - fails}/14 passed")
     return 1 if fails else 0
 
