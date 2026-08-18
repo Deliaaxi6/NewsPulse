@@ -26,6 +26,7 @@ import test_weekly_review
 import test_alert
 import test_run_all
 import test_corporate
+import test_circuit_drill
 
 
 def main() -> int:
@@ -52,6 +53,7 @@ def main() -> int:
 ("alert", test_alert.main),
         ("run_all", test_run_all.main),
         ("corporate", test_corporate.main),
+        ("circuit_drill", test_circuit_drill.main),
     ]
     total_fail = 0
     for name, fn in suites:

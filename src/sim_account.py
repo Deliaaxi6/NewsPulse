@@ -474,6 +474,17 @@ def apply_corporate_actions(today: str, state: dict) -> list:
     return events
 
 
+def circuit_liquidation(state: dict) -> list:
+    """熔断冷却中：全持仓生成卖出决策（清仓）。无持仓返回空。
+    卖出走 run_orders 统一路径（涨停不卖/一字板保护自动生效）。
+    幂等：冷却期内持仓清空后不再产生卖出决策。"""
+    return [{"stock": sym, "signal": "sell",
+             "leverage": pos.get("leverage", 1),
+             "reason": "熔断清仓（3倍杠杆回撤≥33%）"}
+            for sym, pos in state["positions"].items()
+            if pos.get("shares", 0) > 0]
+
+
 def main(date_str=None):
     date_str = date_str or dt.date.today().isoformat()
     qfile = DATA_DIR / f"decision_{date_str}.csv"
@@ -499,6 +510,7 @@ def main(date_str=None):
         print(f"[circuit] 熔断冷却中（{cb.status_text()}），今日全部观望不交易")
         decisions = [dict(d, signal="hold", reason="熔断冷却中，暂停交易")
                      for d in decisions]
+        decisions += circuit_liquidation(state)
     else:
         stops = stop_loss_signal(state, quotes, date_str)
         if stops:

@@ -12,6 +12,7 @@ import datetime as dt
 
 import pandas as pd
 
+import alert
 from config import DATA_DIR, LOGS_DIR
 from fund_flow import trading_days_between
 
@@ -77,6 +78,10 @@ def check_circuit(today, total_value, peak_value, leverage):
             state["last_cool_date"] = today
             _log(f"熔断触发: 3倍杠杆下回撤{(peak_value-total_value)/peak_value:.1%}≥33% (repeat_cool={state['repeat_cool']})")
             events.append(f"熔断触发: 3倍杠杆下回撤{1-(total_value/peak_value if peak_value else 0):.1%}≥33%")
+            alert.notify("熔断触发",
+                         f"3倍杠杆下市值回撤{(peak_value-total_value)/peak_value:.1%}≥33%，"
+                         f"已清仓并停止交易（冷却{cooling_days(state)}个交易日，"
+                         f"连续{RECOVERY_SENTI_DAYS}日情绪转正后恢复）")
     else:
         state["recovered_days"] += 1
         _log(f"冷却推进 {state['recovered_days']}/{cooling_days(state)}日, 连续情绪转正{state['pos_senti_days']}/{RECOVERY_SENTI_DAYS}日")
