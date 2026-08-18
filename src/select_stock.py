@@ -66,6 +66,24 @@ def _code(sym: str) -> str:
     return f"{sym}.XSHG" if sym.startswith("6") else f"{sym}.XSHE"
 
 
+def _validate_snapshot(df: pd.DataFrame) -> pd.DataFrame:
+    """早盘 0 值校验（宁缺毋假）：涨跌幅/量比/成交额任一列 0 值占比 >95%
+    → 视为行情未生成（9:05 早盘新浪/东财常见），抛 ValueError 由 try_chain
+    判定该源失败自动切下一源，全部失败走涨停池兜底。全 NaN/缺列/空表放行。"""
+    if df is None or df.empty:
+        return df
+    for col in ("涨跌幅", "量比", "成交额"):
+        if col not in df.columns:
+            continue
+        s = pd.to_numeric(df[col], errors="coerce")
+        if s.isna().all():
+            continue
+        zero_ratio = (s.fillna(0) == 0).mean()
+        if zero_ratio > 0.95:
+            raise ValueError(f"{col} 0值占比 {zero_ratio:.0%}，疑似早盘行情未生成，源不可用")
+    return df
+
+
 def _filter_market_df(df: pd.DataFrame) -> pd.DataFrame:
     """全市场快照本地过滤（纯函数，可单测）：非ST / 涨幅 0~9.9% / 量比>1.5 / 成交额>2亿。
     输入/输出均为东财 spot_em 快照列（代码/名称/涨跌幅/量比/成交额）。"""
@@ -118,13 +136,13 @@ def _em_spot_alt(hosts: tuple) -> pd.DataFrame:
 def _to_em_df(rows: list) -> pd.DataFrame:
     """clist diff 行列表 → 东财 spot_em 列结构（纯函数，可单测）。"""
     df = pd.DataFrame(rows)
-    return pd.DataFrame({
+    return _validate_snapshot(pd.DataFrame({
         "代码": df["f12"].astype(str),
         "名称": df["f14"].astype(str),
         "涨跌幅": pd.to_numeric(df.get("f3"), errors="coerce"),
         "量比": pd.to_numeric(df.get("f10"), errors="coerce"),
         "成交额": pd.to_numeric(df.get("f6"), errors="coerce"),
-    })
+    }))
 
 
 def _sina_spot() -> pd.DataFrame:
@@ -147,13 +165,14 @@ def _sina_spot() -> pd.DataFrame:
     if not rows:
         raise ValueError("新浪快照为空")
     df = pd.DataFrame(rows)
-    return pd.DataFrame({
+    out = pd.DataFrame({
         "代码": df["symbol"].astype(str).str[-6:],
         "名称": df["name"].astype(str),
         "涨跌幅": pd.to_numeric(df.get("changepercent"), errors="coerce"),
         "量比": pd.to_numeric(df.get("volume_ratio"), errors="coerce"),
         "成交额": pd.to_numeric(df.get("amount"), errors="coerce").mul(1e4),
     })
+    return _validate_snapshot(out)
 
 
 def _market_pool(date_str: str) -> list:
@@ -163,7 +182,7 @@ def _market_pool(date_str: str) -> list:
 
     try:
         df = net_guard.try_chain("东财快照",
-                                 [("em", lambda: ak.stock_zh_a_spot_em()),
+                                 [("em", lambda: _validate_snapshot(ak.stock_zh_a_spot_em())),
                                   ("em_alt", lambda: _em_spot_alt(EM_ALT_HOSTS)),
                                   ("sina", _sina_spot)],
                                  retries=2)

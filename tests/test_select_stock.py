@@ -85,6 +85,62 @@ def main() -> int:
     except ValueError:
         check("新浪 全空页抛异常", True)
 
+    # --- 早盘 0 值校验（宁缺毋假）：任一列 0 值占比>95% → 源不可用 ---
+    def check_zero(name, df, expect_raise):
+        try:
+            _ss._validate_snapshot(df)
+            check(name, not expect_raise)
+        except ValueError:
+            check(name, expect_raise)
+
+    zero_pct = pd.DataFrame([
+        {"代码": "600001", "名称": "甲", "涨跌幅": 0.0, "量比": 0.0, "成交额": 0.0},
+        {"代码": "600002", "名称": "乙", "涨跌幅": 0.0, "量比": 0.0, "成交额": 0.0},
+    ])
+    check_zero("早盘0值 三列全0抛异常", zero_pct, True)
+    pct_zero = zero_pct.copy()
+    pct_zero["成交额"] = [5e8, 3e8]
+    check_zero("早盘0值 仅涨跌幅全0抛异常", pct_zero, True)
+    vol_zero = zero_pct.copy()
+    vol_zero["涨跌幅"] = [3.2, 2.1]
+    check_zero("早盘0值 仅量比全0抛异常", vol_zero, True)
+    amt_zero = zero_pct.copy()
+    amt_zero["涨跌幅"] = [3.2, 2.1]
+    amt_zero["量比"] = [2.5, 2.0]
+    check_zero("早盘0值 仅成交额全0抛异常", amt_zero, True)
+    normal_snap = pd.DataFrame([
+        {"代码": "600001", "名称": "甲", "涨跌幅": 3.2, "量比": 2.5, "成交额": 5e8},
+        {"代码": "600002", "名称": "乙", "涨跌幅": 0.0, "量比": 0.0, "成交额": 0.0},
+    ])
+    check_zero("早盘0值 个别股0值放行", normal_snap, False)
+    check_zero("早盘0值 空表放行", pd.DataFrame(), False)
+    check_zero("早盘0值 缺列放行", pd.DataFrame([{"代码": "600001"}]), False)
+    nan_all = pd.DataFrame([{"代码": "600001", "涨跌幅": None, "量比": None, "成交额": None}])
+    check_zero("早盘0值 全NaN放行", nan_all, False)
+    check("早盘0值 校验后正常数据原样返回",
+          len(_ss._validate_snapshot(normal_snap)) == 2)
+
+    zero_pages = [[{"symbol": "sh600001", "name": "甲", "changepercent": "0.00", "amount": "0"},
+                   {"symbol": "sz000002", "name": "乙", "changepercent": "0.00", "amount": "0"}]]
+    _ss.requests.get = lambda url, params, timeout: FakeResp(
+        _json.dumps(zero_pages[params["page"] - 1] if params["page"] <= len(zero_pages) else []))
+    try:
+        _ss._sina_spot()
+        check("新浪 早盘全0快照抛异常", False)
+    except ValueError:
+        check("新浪 早盘全0快照抛异常", True)
+    em_zero_payload = {"data": {"diff": [
+        {"f12": "600001", "f14": "甲", "f3": 0.0, "f10": 0.0, "f6": 0.0},
+        {"f12": "000002", "f14": "乙", "f3": 0.0, "f10": 0.0, "f6": 0.0},
+    ], "total": 2}}
+    _ss.requests.get = lambda url, params, timeout: FakeResp(_json.dumps(em_zero_payload))
+    try:
+        _ss._em_spot_alt(("83.push2",))
+        check("em_alt 早盘全0抛异常", False)
+    except ValueError:
+        check("em_alt 早盘全0抛异常", True)
+    _ss.requests.get = _orig_get
+
     # --- 东财备用子域：clist JSON → 东财列结构（mock 翻页 + 子域轮换） ---
     em_payload = {"data": {"diff": [
         {"f12": "600001", "f14": "甲股", "f3": 3.2, "f10": 2.5, "f6": 5e8},
