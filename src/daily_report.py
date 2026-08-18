@@ -20,12 +20,28 @@ import telegram_push
 
 ASSETS_DIR = Path(__file__).resolve().parent / "assets"
 
+
+def _inline_assets() -> str:
+    """把本地 Chart.js 两个文件内联进 HTML（自包含，Telegram 附件在任意设备打开可显示）。
+    `</script` 转义防提前闭合；文件缺失 fail-open 返回空。"""
+    parts = []
+    for name in ("chart.umd.js", "chartjs-plugin-annotation.min.js"):
+        p = ASSETS_DIR / name
+        if not p.exists():
+            print(f"[warn] 图表资源缺失 {p}，图表将不显示（页面其余正常）")
+            continue
+        try:
+            js = p.read_text(encoding="utf-8").replace("</script", "<\\/script")
+            parts.append(f"<script>{js}</script>")
+        except Exception as e:
+            print(f"[warn] 图表资源读取失败 {p}: {e}")
+    return "\n".join(parts)
+
 PAGE = """<!DOCTYPE html>
 <html lang="zh"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>NewsPulse 日报 {date}</title>
-<script src="../src/assets/chart.umd.js"></script>
-<script src="../src/assets/chartjs-plugin-annotation.min.js"></script>
+{chart_scripts}
 <style>
 :root{--bg:#0f1419;--card:#161b22;--border:#2a3139;--text:#e6edf3;--muted:#8b98a5;--accent:#4a9eff;--pos:#e74c3c;--neg:#2ecc71}
 *{box-sizing:border-box}
@@ -299,7 +315,8 @@ def main(date_str=None):
                   bearish_banner=bearish_banner,
                   assets=f"{assets:,.0f}", decision_count=len(decisions),
                   decision_rows=d_rows, prediction_rows=prediction_rows_html(),
-                  position_rows=p_rows, trade_rows=t_rows, cyq_rows=c_rows)
+                  position_rows=p_rows, trade_rows=t_rows, cyq_rows=c_rows,
+                  chart_scripts=_inline_assets())
             .replace("__CHART_JSON__", json.dumps(chart_data(senti), ensure_ascii=False)))
     out = REPORTS_DIR / f"report_{date_str}.html"
     out.write_text(html, encoding="utf-8")

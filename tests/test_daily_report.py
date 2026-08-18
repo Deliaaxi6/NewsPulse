@@ -33,7 +33,8 @@ def main() -> int:
     check("chart.umd.js 已本地化", (daily_report.ASSETS_DIR / "chart.umd.js").exists())
     check("annotation 插件已本地化",
           (daily_report.ASSETS_DIR / "chartjs-plugin-annotation.min.js").exists())
-    check("模板引用本地资源", "src/assets/chart.umd.js" in daily_report.PAGE)
+    check("模板不引用外部资源", "script src=" not in daily_report.PAGE)
+    check("模板含内联占位", "{chart_scripts}" in daily_report.PAGE)
 
     # --- 模板元素 ---
     for cid in ("chart-trend", "chart-news", "chart-dist"):
@@ -67,12 +68,14 @@ def main() -> int:
                                pos=52, neg=46, neu=138, verdict="情绪中性，观望为主",
                                score_color="#4a9eff", bearish_banner="", assets="100,000",
                                decision_count=4, decision_rows="", prediction_rows="",
-                               position_rows="", trade_rows="", cyq_rows="")
+                               position_rows="", trade_rows="", cyq_rows="",
+                               chart_scripts=daily_report._inline_assets())
             .replace("__CHART_JSON__", json.dumps(daily_report.chart_data(_senti(3)))))
     check("渲染无残留占位符",
           "{date}" not in html and "{score}" not in html and "__CHART_JSON__" not in html
           and "{bearish_banner}" not in html)
     check("渲染含图表数据", '"scores"' in html)
+    check("渲染含内联 Chart.js", "Chart(" in html and "script src=" not in html)
 
     # --- 推送降噪（同日去重 + fail-open）---
     import os
