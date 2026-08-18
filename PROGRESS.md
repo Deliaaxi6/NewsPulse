@@ -51,6 +51,15 @@
 - ✅ 全量回归（25 套件）本地+服务器 ALL PASSED；git push origin main:master（4c808ea..619a0e9）
 - 📌 未处理（范围外）：9:05 行情口径（新浪早盘 0 值，跌停池/量比失真）；北向资金 2024-08 起官方停发（unavailable 已标注）；两融披露滞后约一周
 
+### 2026-08-18（续）— 新浪早盘 0 值修复 + 测试告警通道污染事故
+- ✅ 修复"新浪源早盘 0 值导致量比/跌停池判定失真"（提交 c071ad5）：
+  - select_stock 新增 _validate_snapshot：涨跌幅/量比/成交额任一列 0 值占比 >95% → 抛 ValueError（疑似早盘行情未生成）
+  - 三源统一接入：em 官方（lambda 包装）、em_alt（_to_em_df 后）、sina（快照拼接后）→ try_chain 自动切下一源，全挂走涨停池兜底（宁缺毋假，不产生半真半假数据）
+  - tests/test_select_stock.py 新增 12 用例（单列全 0/个别股 0 值/空表/缺列/全 NaN/新浪集成/em_alt 集成）；服务器实测 em 直连失败自动降级，正常数据不误杀
+- 🔥 测试污染事故（13:46）：本地全量回归时 test_circuit 未 mock 告警通道 → check_circuit 3 次真实触发发出 3 条 Telegram 熔断告警（34%/40%/40%）
+  - 修复（提交 ece2b60）：test_circuit 全局替换 cb.alert.notify 为 no-op（与 test_select_stock/test_trading 风格一致），回归不再外发
+- ✅ 全量回归（25 套件）本地+服务器 ALL PASSED；git push origin main:master（51d98aa..ece2b60）
+
 ### 2026-08-17 — 首日自动运行成功 + 东财 clist 出口封锁修复（多源降级链）
 - ✅ 首日 9:05 全链路完成：news(377条) → 涨停池选股(20只) → 情绪(0.1274) → 决策(20条全hold) → 实际买入 603186(100股@167.55)，600613/300684 一字板正确屏蔽，日报+推送成功
 - 🔥 东财全市场快照（82.push2.eastmoney.com）出口被拒：mihomo 负载均衡组约半节点出口被封（curl/python 均随机 50% 成败），82/push2/21.push2 全挂，83/push2delay/push2his 可达
