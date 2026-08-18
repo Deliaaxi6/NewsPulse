@@ -110,17 +110,23 @@ def classify(df: pd.DataFrame, date_str: str | None = None) -> pd.DataFrame:
         [{"text": t} for t in df["senti"]], date_str)
     for idx, label in llm.items():
         df.loc[idx, "senti"] = label
+    df.llm_covered = len(llm)
     return df
 
 
-def summarize(df: pd.DataFrame, date_str: str) -> dict:
+def summarize(df: pd.DataFrame, date_str: str, llm_covered: int = None) -> dict:
     total = len(df)
     pos = int((df["senti"] == "bull").sum())
     neg = int((df["senti"] == "bear").sum())
     neu = total - pos - neg
     score = round((pos - neg) / total, 4) if total else 0.0
-    return {"date": date_str, "senti_score": score, "total_news": total,
-            "pos_cnt": pos, "neg_cnt": neg, "neutral_cnt": neu}
+    s = {"date": date_str, "senti_score": score, "total_news": total,
+         "pos_cnt": pos, "neg_cnt": neg, "neutral_cnt": neu}
+    if llm_covered is not None:
+        s["llm_covered"] = int(llm_covered)
+        s["llm_total"] = total
+        s["llm_ratio"] = round(llm_covered / total, 4) if total else 0.0
+    return s
 
 
 def stock_sentiment(df: pd.DataFrame, pool_symbols: set) -> dict:
@@ -153,7 +159,14 @@ def main(date_str=None):
         return
     df = pd.read_csv(src, encoding="utf-8-sig")
     df = classify(df, date_str)
-    summary = summarize(df, date_str)
+    covered = getattr(df, "llm_covered", None)
+    summary = summarize(df, date_str, covered)
+    if covered is not None:
+        if covered >= len(df):
+            print(f"[ok] LLM 全覆盖 {covered}/{len(df)}")
+        else:
+            print(f"[info] LLM 覆盖 {covered}/{len(df)} "
+                  f"({covered / len(df):.0%})，其余为关键词规则口径（同日混合）")
     pool = select_stock.load_pool(date_str)
     ss = stock_sentiment(df, {s["symbol"] for s in pool})
     if ss:

@@ -314,8 +314,13 @@ def main(date_str=None):
 
     assets = positions[-1]["total_value"] if positions else 100000.0
     bearish_banner = _bearish_banner(score, last["pos_cnt"], last["neg_cnt"])
+    llm_note = ""
+    llm_r = last.get("llm_ratio")
+    if not pd.isna(llm_r):
+        llm_note = f" · LLM 覆盖 {float(llm_r):.0%}"
     html = (_fill(PAGE, date=date_str, score=f"{score:+.2f}", total=last["total_news"],
-                  pos=last["pos_cnt"], neg=last["neg_cnt"], neu=last["neutral_cnt"],
+                  pos=last["pos_cnt"], neg=last["neg_cnt"],
+                  neu=f"{last['neutral_cnt']}{llm_note}",
                   verdict=verdict(score), score_color=score_color(score),
                   bearish_banner=bearish_banner,
                   assets=f"{assets:,.0f}", decision_count=len(decisions),
