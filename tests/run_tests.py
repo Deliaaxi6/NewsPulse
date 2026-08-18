@@ -25,6 +25,7 @@ import test_stock_sentiment
 import test_weekly_review
 import test_alert
 import test_run_all
+import test_corporate
 
 
 def main() -> int:
@@ -49,7 +50,8 @@ def main() -> int:
         ("stock_sentiment", test_stock_sentiment.main),
         ("weekly_review", test_weekly_review.main),
 ("alert", test_alert.main),
-("run_all", test_run_all.main),
+        ("run_all", test_run_all.main),
+        ("corporate", test_corporate.main),
     ]
     total_fail = 0
     for name, fn in suites:

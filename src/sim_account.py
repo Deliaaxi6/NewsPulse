@@ -395,6 +395,85 @@ def _notify_pending_results(logs: list, due: list):
         telegram_push.send_text("\n".join(msgs))
 
 
+def _load_fhps(sym: str):
+    """除权除息历史（东财全量，含已实施记录）→ 本地 json 缓存。
+    接口失败读缓存兜底（fail-open，宁缺毋假）。"""
+    cache = DATA_DIR / "fhps_cache" / f"{sym}.json"
+    try:
+        import akshare as ak
+        df = ak.stock_fhps_detail_em(symbol=sym)
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        df.to_json(cache, orient="records", force_ascii=False)
+        return df
+    except Exception as e:
+        print(f"[warn] {sym} 除权除息数据获取失败: {e}")
+        if cache.exists():
+            try:
+                return pd.read_json(cache)
+            except Exception:
+                return None
+        return None
+
+
+def apply_corporate_actions(today: str, state: dict) -> list:
+    """除权除息日 == 今日 → 调整持仓（送转股数/成本、派息现金）。
+    幂等：data/corporate_actions_log.csv 按 (stock, ex_date) 去重，同日重跑不重复调整。
+    接口/日志失败 fail-open 不中断主流程。返回事件描述列表。"""
+    events = []
+    if not state["positions"]:
+        return events
+    logf = DATA_DIR / "corporate_actions_log.csv"
+    done = set()
+    if logf.exists():
+        try:
+            ldf = pd.read_csv(logf, encoding="utf-8-sig", dtype={"stock": str})
+            done = set(zip(ldf["stock"].astype(str), ldf["ex_date"].astype(str)))
+        except Exception:
+            pass
+    for sym, pos in list(state["positions"].items()):
+        if pos.get("shares", 0) <= 0:
+            continue
+        df = _load_fhps(sym)
+        if df is None or df.empty:
+            continue
+        try:
+            df["除权除息日"] = pd.to_datetime(df["除权除息日"], errors="coerce")
+            hit = df[df["除权除息日"].dt.date.astype(str) == today]
+            if hit.empty:
+                continue
+            row = hit.iloc[-1]
+            if (sym, today) in done:
+                print(f"[info] {sym} {today} 除权除息已处理过，跳过")
+                continue
+            old_shares = float(pos["shares"])
+            send_raw = row.get("送转股份-送转总比例")
+            div_raw = row.get("现金分红-现金分红比例")
+            desc = row.get("现金分红-现金分红比例描述")
+            send_ratio = 0.0 if pd.isna(send_raw) else float(send_raw) / 10.0
+            div = 0.0 if pd.isna(div_raw) else float(div_raw) / 10.0
+            desc = "" if pd.isna(desc) else str(desc)
+            div_cash = old_shares * div
+            new_shares = round(old_shares * (1 + send_ratio))
+            old_cost_total = float(pos["cost"]) * old_shares
+            if new_shares > 0:
+                pos["shares"] = float(new_shares)
+                pos["cost"] = round(old_cost_total / new_shares - div, 3)
+            state["cash"] = round(state["cash"] + div_cash, 2)
+            msg = f"{sym} 除权除息({desc})：股数{old_shares:.0f}→{new_shares:.0f}，现金+{div_cash:.2f}"
+            events.append(msg)
+            print(f"[corp] {msg}")
+            try:
+                pd.DataFrame([{"date": today, "stock": sym, "ex_date": today,
+                               "desc": desc}]).to_csv(
+                    logf, index=False, encoding="utf-8-sig",
+                    mode="a", header=not logf.exists())
+            except Exception as e:
+                print(f"[warn] 除权日志写入失败: {e}")
+        except Exception as e:
+            print(f"[warn] {sym} 除权除息处理失败: {e}")
+    return events
+
+
 def main(date_str=None):
     date_str = date_str or dt.date.today().isoformat()
     qfile = DATA_DIR / f"decision_{date_str}.csv"
@@ -411,6 +490,7 @@ def main(date_str=None):
     quotes = latest_quote(pool)
     if not quotes:
         return
+    apply_corporate_actions(date_str, state)
     validate_predictions(date_str, quotes)
     logs = []
     if state["cash"] >= INIT_CASH * 0.999 and not state["positions"]:
