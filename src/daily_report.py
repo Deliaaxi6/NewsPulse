@@ -96,7 +96,11 @@ const CHART_DATA = __CHART_JSON__;
 function darkOpts(){return{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#8b98a5'}}},scales:{x:{ticks:{color:'#8b98a5'},grid:{color:'#222a33'}},y:{ticks:{color:'#8b98a5'},grid:{color:'#222a33'}}}}}
 if (CHART_DATA.labels.length && CHART_DATA.scores.length) {
   const maAnno = CHART_DATA.scores.length >= 7 ? {ma7:{type:'line',scaleID:'y',value:CHART_DATA.ma7,borderColor:'#f5b942',borderDash:[4,4],borderWidth:1,label:{content:'7日均',display:true,color:'#f5b942'}}} : {};
-  new Chart(document.getElementById('chart-trend'),{type:'line',data:{labels:CHART_DATA.labels,datasets:[{label:'情绪分',data:CHART_DATA.scores,borderColor:'#4a9eff',backgroundColor:'rgba(74,158,255,0.12)',fill:true,tension:0.35,pointRadius:3,pointBackgroundColor:'#4a9eff'}]},options:Object.assign(darkOpts(),{plugins:{legend:{display:false},annotation:{annotations:maAnno}}}});
+  new Chart(document.getElementById('chart-trend'), {
+      type: 'line',
+      data: {labels: CHART_DATA.labels, datasets: [{label: '情绪分', data: CHART_DATA.scores, borderColor: '#4a9eff', backgroundColor: 'rgba(74,158,255,0.12)', fill: true, tension: 0.35, pointRadius: 3, pointBackgroundColor: '#4a9eff'}]},
+      options: Object.assign(darkOpts(), {plugins: {legend: {display: false}, annotation: {annotations: maAnno}}})
+    });
   new Chart(document.getElementById('chart-news'),{type:'bar',data:{labels:CHART_DATA.labels,datasets:[{label:'新闻数',data:CHART_DATA.news,backgroundColor:'#3b6ea5',borderRadius:4}]},options:darkOpts()});
   new Chart(document.getElementById('chart-dist'),{type:'doughnut',data:{labels:['利好','利空','中性'],datasets:[{data:[CHART_DATA.dist.pos,CHART_DATA.dist.neg,CHART_DATA.dist.neu],backgroundColor:['#e74c3c','#2ecc71','#8b98a5'],borderColor:'#161b22'}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#8b98a5'}}}}});
 } else {
