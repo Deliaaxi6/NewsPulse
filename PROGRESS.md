@@ -34,6 +34,23 @@
 
 ## 会话日志（从设计阶段开始记录）
 
+### 2026-08-18 — 功能缺陷闭环 A/B/C（除权除息 / 熔断真实路径 / LLM 覆盖率）
+- ✅ A 除权除息处理（此前完全缺失，除权日市值/股数失真）：
+  - sim_account 新增 apply_corporate_actions：东财 stock_fhps_detail_em 全量历史 + data/fhps_cache/{sym}.json 本地缓存（接口失败读缓存兜底 fail-open）
+  - 除权除息日==今日 → 送转调股数（成本总额守恒）、派息按旧股数入现金并下调成本（A 股除息口径）；corporate_actions_log.csv 按 (stock, ex_date) 去重幂等；日志写入失败不中断
+  - 每日撮合入口 quotes 后、决策前调用；仅处理持仓股（非持仓不查接口）
+  - tests/test_corporate.py 9/9（送转/派息/同日组合/幂等/接口失败/NaN/日志失败）；提交 d81e215
+- ✅ B 熔断真实路径演练（服务器走真实代码）：3 倍杠杆回撤 35% 触发 check_circuit → **实锤两缺口：无 Telegram 告警、无清仓**（仅写状态+print，CLAUDE.md 声称"清仓+告警"实际不存在）
+  - 修复：circuit_breaker 触发时 alert.notify（文案含回撤%/冷却日/恢复条件，冷却推进不重复告警）；sim_account 冷却分支生成全持仓"熔断清仓" sell 决策走 run_orders 统一路径（涨停不卖/一字板保护自动生效），持仓清空后幂等
+  - 服务器复验：真实告警 Telegram 实收 + 清仓成交（持仓清空/日志/卖出告警），状态已恢复 normal
+  - tests/test_circuit_drill.py 8/8；提交 8e4e1d3
+- ✅ C LLM 覆盖率标注（同日混合口径可核查）：
+  - classify 附加 df.llm_covered 属性（backtest/weekly_review 旧调用透明兼容）；summarize 新增 llm_covered/llm_total/llm_ratio 列写入 daily_sentiment.csv；main 打印覆盖情况，混合口径显式标注
+  - daily_report KPI 情绪卡标注"LLM 覆盖 xx%"（老数据无列不显示）；实测今日 358/358 全覆盖
+  - tests/test_llm_coverage.py 8/8；提交 619a0e9
+- ✅ 全量回归（25 套件）本地+服务器 ALL PASSED；git push origin main:master（4c808ea..619a0e9）
+- 📌 未处理（范围外）：9:05 行情口径（新浪早盘 0 值，跌停池/量比失真）；北向资金 2024-08 起官方停发（unavailable 已标注）；两融披露滞后约一周
+
 ### 2026-08-17 — 首日自动运行成功 + 东财 clist 出口封锁修复（多源降级链）
 - ✅ 首日 9:05 全链路完成：news(377条) → 涨停池选股(20只) → 情绪(0.1274) → 决策(20条全hold) → 实际买入 603186(100股@167.55)，600613/300684 一字板正确屏蔽，日报+推送成功
 - 🔥 东财全市场快照（82.push2.eastmoney.com）出口被拒：mihomo 负载均衡组约半节点出口被封（curl/python 均随机 50% 成败），82/push2/21.push2 全挂，83/push2delay/push2his 可达
