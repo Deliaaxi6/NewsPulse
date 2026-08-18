@@ -56,8 +56,9 @@ h2{font-size:16px;color:#7fb2e5;border-bottom:1px solid var(--border);padding-bo
 .kpi-value{font-size:26px;font-weight:700;margin-top:4px}
 .kpi-note{color:var(--muted);font-size:11px;margin-top:2px}
 .chart-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:12px;margin-bottom:6px}
-.chart-box{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px;min-height:240px}
+.chart-box{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px;height:320px;display:flex;flex-direction:column}
 .chart-box h3{margin:0 0 8px;font-size:14px;color:var(--muted);font-weight:600}
+.chart-box canvas{flex:1;min-height:0;width:100%}
 table{border-collapse:collapse;width:100%;margin:8px 0 14px;background:var(--card);font-size:13px}
 th,td{border:1px solid var(--border);padding:6px 10px;text-align:left}
 th{background:#1b222b;color:var(--muted)}
