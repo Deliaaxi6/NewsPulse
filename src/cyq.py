@@ -6,12 +6,13 @@
 import pandas as pd
 import numpy as np
 
+from config import sina_prefix
+
 
 def fetch_daily(symbol: str, days: int = 180) -> pd.DataFrame:
     """拉取历史日K（新浪，含成交量），升序。失败返回空表。"""
     import akshare as ak
-    prefix = "sh" if symbol.startswith("6") else "sz"
-    df = ak.stock_zh_a_daily(symbol=prefix + symbol)
+    df = ak.stock_zh_a_daily(symbol=sina_prefix(symbol) + symbol)
     if df is None or df.empty:
         return pd.DataFrame()
     df = df.tail(days).reset_index(drop=True)

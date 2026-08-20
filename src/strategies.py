@@ -8,6 +8,7 @@
 import pandas as pd
 
 import net_guard
+from config import sina_prefix
 
 MIN_DAYS = 300
 AMOUNT_MIN = 200000000  # 成交额门槛 2 亿（与 InStock 一致）
@@ -19,7 +20,7 @@ def fetch_kline(sym: str, asof: str = None):
     try:
         import akshare as ak
 
-        prefix = "sh" if sym.startswith("6") else "sz"
+        prefix = sina_prefix(sym)
 
         def _sina():
             df = ak.stock_zh_a_daily(symbol=prefix + sym)

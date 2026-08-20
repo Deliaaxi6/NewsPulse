@@ -76,3 +76,13 @@ STOP_COOLDOWN_DAYS = 5
 LIMIT_UP_PCT = 9.9
 LIMIT_DOWN_PCT = -9.9
 ONE_WORD_TOL = 0.01
+
+
+def sina_prefix(sym: str) -> str:
+    """akshare/新浪行情前缀：6 开头→sh（含科创板 688）、0/3→sz（含创业板）、
+    其余（北交所 4/8/920）→bj。"""
+    if sym.startswith("6"):
+        return "sh"
+    if sym.startswith(("0", "3")):
+        return "sz"
+    return "bj"

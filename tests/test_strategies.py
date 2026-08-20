@@ -8,6 +8,7 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 import strategies as S
+from config import sina_prefix
 
 
 def _kline(closes, volumes=None, opens=None):
@@ -106,6 +107,36 @@ def main() -> int:
     no_vol = _kline([100] * 60).drop(columns=["volume"])
     check("vol缺失列 turtle 不崩溃", S.turtle_trade(no_vol))
 
+    # 13 行情前缀（北交所 bj 支持）
+    check("sina_prefix 沪", sina_prefix("600519") == "sh")
+    check("sina_prefix 科创", sina_prefix("688836") == "sh")
+    check("sina_prefix 深", sina_prefix("000858") == "sz")
+    check("sina_prefix 创业", sina_prefix("300750") == "sz")
+    check("sina_prefix 北交920", sina_prefix("920001") == "bj")
+    check("sina_prefix 北交8", sina_prefix("833171") == "bj")
+    check("sina_prefix 北交4", sina_prefix("430047") == "bj")
+
+    import strategies as _S2
+    seen = {}
+
+    def fake_chain(name, links):
+        fn = links[0][1]
+        try:
+            df = fn()
+        except Exception as ex:
+            seen["err"] = str(ex)
+            raise
+        seen["symbol"] = fn.__closure__[0].cell_contents
+        return df
+
+    orig = _S2.net_guard.try_chain
+    _S2.net_guard.try_chain = fake_chain
+    try:
+        _S2.fetch_kline("920001")
+        check("fetch_kline 北交所 bj前缀", seen.get("symbol") == "bj920001", str(seen))
+    except Exception:
+        check("fetch_kline 北交所 bj前缀", seen.get("symbol") == "bj920001", str(seen))
+    _S2.net_guard.try_chain = orig
     return fails
 
 

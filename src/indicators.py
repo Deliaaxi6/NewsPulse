@@ -4,13 +4,14 @@
 """
 import pandas as pd
 
+from config import sina_prefix
+
 
 def fetch_daily(symbol: str, days: int = 120, asof: str = None) -> pd.DataFrame:
     """拉取历史日K（新浪），返回升序 DataFrame[date, open, high, low, close]。
     asof 给 'YYYY-MM-DD' 时截断到该日收盘（回测/补跑不含未来数据）。失败返回空表。"""
     import akshare as ak
-    prefix = "sh" if symbol.startswith("6") else "sz"
-    df = ak.stock_zh_a_daily(symbol=prefix + symbol)
+    df = ak.stock_zh_a_daily(symbol=sina_prefix(symbol) + symbol)
     if df is None or df.empty:
         return pd.DataFrame(columns=["date", "open", "high", "low", "close"])
     df = df.copy()
