@@ -62,8 +62,13 @@ def _zt_pool(base_date: str) -> pd.DataFrame:
 
 
 def _code(sym: str) -> str:
-    """与 config.STOCKS 的 code 格式一致（600→沪 000→深）。"""
-    return f"{sym}.XSHG" if sym.startswith("6") else f"{sym}.XSHE"
+    """与 config.STOCKS 的 code 格式一致：6 开头→XSHG（含科创板 688）、0/3→XSHE（含创业板）、
+    其余（北交所 4/8/920 开头）→BJ。"""
+    if sym.startswith("6"):
+        return f"{sym}.XSHG"
+    if sym.startswith(("0", "3")):
+        return f"{sym}.XSHE"
+    return f"{sym}.BJ"
 
 
 def _validate_snapshot(df: pd.DataFrame) -> pd.DataFrame:
