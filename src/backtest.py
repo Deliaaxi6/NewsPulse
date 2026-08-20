@@ -24,8 +24,8 @@ import sim_account
 def load_hist_quotes(symbol, start, end):
     """历史日K（新浪）：返回 {date: {open, close, pct}}。"""
     import akshare as ak
-    prefix = "sh" if symbol.startswith("6") else "sz"
-    df = ak.stock_zh_a_daily(symbol=prefix + symbol,
+    from config import sina_prefix
+    df = ak.stock_zh_a_daily(symbol=sina_prefix(symbol) + symbol,
                              start_date=start.replace("-", ""),
                              end_date=end.replace("-", ""))
     if df is None or df.empty:

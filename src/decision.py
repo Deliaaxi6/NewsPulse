@@ -68,12 +68,12 @@ def fetch_spot(pool: list) -> dict:
 def fetch_spot_sina(pool: list) -> dict:
     """新浪日K降级：涨跌幅=(最新close-昨日close)/昨日close*100。"""
     import akshare as ak
+    from config import sina_prefix
     result = {}
     for s in pool:
         sym = s["symbol"]
-        prefix = "sh" if sym.startswith("6") else "sz"
         try:
-            df = ak.stock_zh_a_daily(symbol=prefix + sym)
+            df = ak.stock_zh_a_daily(symbol=sina_prefix(sym) + sym)
             if df is not None and not df.empty and len(df) >= 2:
                 c = float(df.iloc[-1]["close"]); p = float(df.iloc[-2]["close"])
                 result[sym] = round((c - p) / p * 100, 2)

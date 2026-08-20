@@ -122,20 +122,18 @@ def main() -> int:
     def fake_chain(name, links):
         fn = links[0][1]
         try:
-            df = fn()
-        except Exception as ex:
-            seen["err"] = str(ex)
-            raise
-        seen["symbol"] = fn.__closure__[0].cell_contents
-        return df
-
+            fn()
+        except Exception:
+            pass
+        seen["cells"] = [c.cell_contents for c in fn.__closure__]
+        raise RuntimeError("probe")
     orig = _S2.net_guard.try_chain
     _S2.net_guard.try_chain = fake_chain
     try:
         _S2.fetch_kline("920001")
-        check("fetch_kline 北交所 bj前缀", seen.get("symbol") == "bj920001", str(seen))
-    except Exception:
-        check("fetch_kline 北交所 bj前缀", seen.get("symbol") == "bj920001", str(seen))
+    except RuntimeError:
+        pass
+    check("fetch_kline 北交所 bj前缀", "bj" in seen.get("cells", []) and "920001" in seen.get("cells", []))
     _S2.net_guard.try_chain = orig
     return fails
 

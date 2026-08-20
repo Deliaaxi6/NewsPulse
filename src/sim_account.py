@@ -12,7 +12,7 @@ import requests
 from config import (DATA_DIR, INIT_CASH, MAX_POSITION_RATIO, MAX_TOTAL_RATIO,
                     COMMISSION_RATE, STAMP_TAX, MIN_COMMISSION, LIMIT_UP_PCT,
                     LIMIT_DOWN_PCT, ONE_WORD_TOL, STOP_LOSS_RATIO,
-                    STOP_COOLDOWN_DAYS, LEVERAGE_LOW)
+                    STOP_COOLDOWN_DAYS, LEVERAGE_LOW, sina_prefix)
 import circuit_breaker as cb
 import net_guard
 import select_stock
@@ -92,14 +92,12 @@ def latest_quote_qq(pool: list):
 def latest_quote_sina(pool: list):
     """新浪实时行情降级（hq.sinajs.cn 批量）：price=现价，pct=(现价-昨收)/昨收*100。
     早盘为真实成交口径（原日K降级最新 bar 是昨收，pct=0 导致涨跌停保护失效）。
-    前缀：6→sh、0/3→sz、4/8/920（北交所）→bj。"""
+    前缀（config.sina_prefix）：6→sh、0/3→sz、4/8/920（北交所）→bj。"""
     result = {}
     symbols = []
     for s in pool:
         sym = s["symbol"]
-        prefix = "sh" if sym.startswith("6") else (
-            "bj" if sym.startswith(("4", "8", "920")) else "sz")
-        symbols.append(prefix + sym)
+        symbols.append(sina_prefix(sym) + sym)
     try:
         r = requests.get("https://hq.sinajs.cn/list=" + ",".join(symbols),
                          headers={"Referer": "https://finance.sina.com.cn"}, timeout=10)
