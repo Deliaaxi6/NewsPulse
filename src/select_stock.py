@@ -89,16 +89,26 @@ def _validate_snapshot(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def _pct_max(code: str) -> float:
+    """板块动态涨幅上限（不追已涨停）：主板 9.9、创业板/科创板 19.9、北交所 29.9。"""
+    if code.startswith(("300", "301", "688", "689")):
+        return 19.9
+    if code.startswith(("4", "8", "920")):
+        return 29.9
+    return 9.9
+
+
 def _filter_market_df(df: pd.DataFrame) -> pd.DataFrame:
-    """全市场快照本地过滤（纯函数，可单测）：非ST / 涨幅 0~9.9% / 量比>1.5 / 成交额>2亿。
+    """全市场快照本地过滤（纯函数，可单测）：非ST / 涨幅 (0, 板块涨停上限) / 量比>1.5 / 成交额>2亿。
     输入/输出均为东财 spot_em 快照列（代码/名称/涨跌幅/量比/成交额）。"""
     if df is None or df.empty:
         return pd.DataFrame()
     out = df.copy()
     if "名称" in out.columns:
         out = out[~out["名称"].astype(str).str.contains("ST", na=False)]
-    if "涨跌幅" in out.columns:
-        out = out[(out["涨跌幅"] > MARKET_PCT_MIN) & (out["涨跌幅"] < MARKET_PCT_MAX)]
+    if "涨跌幅" in out.columns and "代码" in out.columns:
+        out = out[(out["涨跌幅"] > MARKET_PCT_MIN)
+                  & (out["涨跌幅"] < out["代码"].astype(str).map(_pct_max))]
     if "量比" in out.columns:
         out = out[(out["量比"].isna()) | (out["量比"] > MARKET_VOL_RATIO)]
     if "成交额" in out.columns:
