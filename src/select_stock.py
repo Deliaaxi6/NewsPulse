@@ -91,11 +91,12 @@ def _validate_snapshot(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _pct_max(code: str) -> float:
-    """板块动态涨幅上限（不追已涨停）：主板 9.9、创业板/科创板 19.9、北交所 29.9。"""
+    """板块动态涨幅上限（不追已涨停）：主板 9.9、创业板/科创板 19.9、北交所 30.1。
+    北交所 30% 涨停价也收录（东财涨停池仅覆盖沪深，快照是北交所唯一路径）。"""
     if code.startswith(("300", "301", "688", "689")):
         return 19.9
     if code.startswith(("4", "8", "920")):
-        return 29.9
+        return 30.1
     return 9.9
 
 

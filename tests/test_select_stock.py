@@ -53,9 +53,9 @@ def main() -> int:
     check("动态上限 创业板301", select_stock._pct_max("301269") == 19.9)
     check("动态上限 科创板688", select_stock._pct_max("688836") == 19.9)
     check("动态上限 科创板689", select_stock._pct_max("689009") == 19.9)
-    check("动态上限 北交所920", select_stock._pct_max("920001") == 29.9)
-    check("动态上限 北交所8", select_stock._pct_max("833171") == 29.9)
-    check("动态上限 北交所4", select_stock._pct_max("430047") == 29.9)
+    check("动态上限 北交所920", select_stock._pct_max("920001") == 30.1)
+    check("动态上限 北交所8", select_stock._pct_max("833171") == 30.1)
+    check("动态上限 北交所4", select_stock._pct_max("430047") == 30.1)
     board_snap = pd.DataFrame([
         {"代码": "300750", "名称": "科创创业板", "涨跌幅": 15.0, "量比": 2.5, "成交额": 5e8},
         {"代码": "688836", "名称": "科创", "涨跌幅": 18.0, "量比": 2.5, "成交额": 5e8},
@@ -66,10 +66,10 @@ def main() -> int:
     ])
     fb = select_stock._filter_market_df(board_snap)
     check("动态上限 15%创业/18%科创/25%北交保留",
-          set(fb["代码"]) == {"300750", "688836", "920001"}, str(set(fb["代码"])))
+          set(fb["代码"]) == {"300750", "688836", "920001", "920002"}, str(set(fb["代码"])))
     check("动态上限 主板15%剔除", "600001" not in fb["代码"].tolist())
     check("动态上限 20%创业涨停剔除", "300751" not in fb["代码"].tolist())
-    check("动态上限 30%北交涨停剔除", "920002" not in fb["代码"].tolist())
+    check("动态上限 30%北交涨停收录", "920002" in fb["代码"].tolist())
 
     # --- 新浪快照降级源：列转换（mock 分页请求） ---
     import json as _json
