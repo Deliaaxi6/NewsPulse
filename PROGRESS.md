@@ -332,3 +332,9 @@
 - âœ… å®Œæˆè¿ç»´å¯¹è´¦ï¼ˆStep 7ï¼‰ï¼šè¾¹é™…æˆæœ¬ Â¥0/æœˆï¼Œgit+æ‰‹åŠ¨æ›´æ–°
 - âœ… å®Œæˆæ–‡æ¡£å¥—ä»¶ï¼ˆStep 8ï¼‰ï¼šROADMAP/CLAUDE/PROGRESS/DECISIONS/ARCHITECTURE/ç”¨æˆ·æ–‡æ¡£/çŸ¥è¯†æ–‡æ¡£
 - ğŸ“Œ ä¸‹ä¸€æ­¥ï¼šPhase 1 ä»»åŠ¡ 1ï¼ˆé¡¹ç›®éª¨æ¶ï¼‰
+### 2026-08-20 ¡ª ±±½»ËùÈ«Á´Â·ĞĞÇé¸²¸Ç£¨¸²¸ÇÉó¼Æ + Êµ²âĞŞ¸´£©
+- Éó¼Æ½áÂÛ£ºÑ¡¹É/½»Ò×ÒÑ¸²¸ÇÈ«²¿ A ¹É°å¿é£»´ËÇ°Êµ²âÈ·ÈÏ±±½»Ëù 920001 ÈÕK ¿ÉÓÃ£¨akshare bj Ç°×º 883 ĞĞ£©£¬µ« sh/sz ¶ş·ÖÇ°×º°Ñ 4/8/920 ´í±ê sz ¡ú ²ßÂÔ/Ö¸±ê/³ïÂë/¾ö²ß½µ¼¶/»Ø²âÁ´Â·È«²¿Ê§°Ü£¨KeyError£©£¬±±½»Ëù¹É½ø¹Û²ì³Øµ«ÓÀÔ¶ÎŞĞÅºÅ
+- ĞŞ¸´£ºconfig.sina_prefix()£¨6¡úsh º¬¿Æ´´¡¢0/3¡úsz º¬´´Òµ¡¢ÆäÓà¡úbj£©Í³Ò» 6 ´¦µ÷ÓÃ£ºstrategies.fetch_kline / cyq.fetch_daily / indicators.fetch_daily / decision.fetch_spot_sina / backtest.load_hist_quotes / sim_account.latest_quote_sina
+- Êµ²â£¨·şÎñÆ÷£©£ºfetch_kline 920001=300ĞĞ¡¢indicators=120ĞĞ¡¢cyq=180ĞĞ¡¢ÊµÊ±¼Û 11.8£¨-0.08%£©?£»¹ÉÆ±ĞÂÎÅ stock_news_em(920001)=10 ĞĞ ?
+- ÈÔÁôÃ¤Çø£ºÌÚÑ¶·ÖÊ±£¨adata qq£©²»Ö§³Ö±±½»Ëù£¨Êµ²â EMPTY£©¡ª¡ª¶«²Æ+ĞÂÀËÍ¬Ê±Ê§°ÜÊ±±±½»Ëùµ±ÈÕÌø¹ı£¨fail-open£©
+- Ìá½»£º47321bc / 85dc533£»²âÊÔ£ºtest_strategies +8£¨º¬ sina_prefix ÁùÀà + fetch_kline bj ±Õ°ü¶ÏÑÔ£©£»È«Á¿»Ø¹é ALL PASSED
