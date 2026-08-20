@@ -135,9 +135,11 @@ def _em_spot_alt(hosts: tuple) -> pd.DataFrame:
                 r = requests.get(f"https://{host}.eastmoney.com/api/qt/clist/get",
                                  params=params, timeout=30)
                 r.raise_for_status()
-                diff = json.loads(r.text)["data"]["diff"]
+                diff = (json.loads(r.text).get("data") or {}).get("diff") or []
                 if not diff:
-                    return _to_em_df(rows)
+                    if rows:
+                        return _to_em_df(rows)  # 翻页自然结束（股票数不足 6000 只）
+                    raise ValueError("东财备用快照为空")
                 rows.extend(diff)
                 got = True
                 break

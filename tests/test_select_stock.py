@@ -204,6 +204,21 @@ def main() -> int:
         check("备用子域 空diff抛异常", False)
     except ValueError:
         check("备用子域 空diff抛异常", True)
+    _ss.requests.get = lambda url, params, timeout: FakeResp(_json.dumps({"data": None}))
+    try:
+        _ss._em_spot_alt(("83.push2",))
+        check("备用子域 data:null抛异常", False)
+    except ValueError:
+        check("备用子域 data:null抛异常", True)
+
+    def fake_em_null_tail(url, params, timeout):
+        if params["pn"] >= 2:
+            return FakeResp(_json.dumps({"data": None}))  # 超出数据总量（60页场景）
+        return FakeResp(_json.dumps(em_payload))
+
+    _ss.requests.get = fake_em_null_tail
+    snap_em3 = _ss._em_spot_alt(("83.push2",))
+    check("备用子域 尾部data:null提前返回", len(snap_em3) == 3)
     _ss.requests.get = _orig_get
 
     # --- 方案C：池合并（涨停池优先/去重/排序截断） ---
