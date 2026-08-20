@@ -27,15 +27,16 @@ MARKET_PCT_MIN = 0.0
 MARKET_PCT_MAX = 9.9
 MARKET_VOL_RATIO = 1.5
 MARKET_AMOUNT_MIN = 2e8
-# 新浪全市场快照降级源（东财 clist 被拒时）：按涨幅排序分页拉取，1页100只
-SINA_SPOT_PAGES = 30
+# 新浪全市场快照降级源（东财 clist 被拒时）：按涨幅排序分页拉取，1页100只，
+# 60 页覆盖全 A 股（约 5400 只），空页自动提前停止
+SINA_SPOT_PAGES = 60
 SINA_SPOT_URL = ("http://vip.stock.finance.sina.com.cn/quotes_service/api/"
                  "json_v2.php/Market_Center.getHQNodeData")
 # 东财 clist 备用子域（82.push2 出口被封时轮换；走 mihomo 负载均衡组约半节点可用）
 EM_ALT_HOSTS = ("83.push2", "push2delay")
 EM_CLIST_FIELDS = "f2,f3,f5,f6,f10,f12,f14"
 EM_CLIST_FS = "m:0 t:6,m:0 t:80,m:1 t:2,m:1 t:23,m:0 t:81 s:2048"
-EM_CLIST_PAGES = 30  # fid=f3 涨幅降序前 30 页（3000 只），覆盖 0~9.9% 过滤区间
+EM_CLIST_PAGES = 60  # fid=f3 涨幅降序前 60 页（6000 只，全量覆盖 A 股含极端普涨日），空页提前停
 
 
 def _retry(func, tries=3, waits=(5, 15, 30), *args, **kwargs):
