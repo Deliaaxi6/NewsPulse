@@ -7,6 +7,7 @@ import re
 import datetime as dt
 
 import pandas as pd
+import requests
 
 from config import (DATA_DIR, INIT_CASH, MAX_POSITION_RATIO, MAX_TOTAL_RATIO,
                     COMMISSION_RATE, STAMP_TAX, MIN_COMMISSION, LIMIT_UP_PCT,
@@ -89,22 +90,39 @@ def latest_quote_qq(pool: list):
 
 
 def latest_quote_sina(pool: list):
-    """新浪日K降级：price=最新close，pct=(最新close-昨日close)/昨日close*100。"""
-    import akshare as ak
+    """新浪实时行情降级（hq.sinajs.cn 批量）：price=现价，pct=(现价-昨收)/昨收*100。
+    早盘为真实成交口径（原日K降级最新 bar 是昨收，pct=0 导致涨跌停保护失效）。
+    前缀：6→sh、0/3→sz、4/8/920（北交所）→bj。"""
     result = {}
+    symbols = []
     for s in pool:
         sym = s["symbol"]
-        prefix = "sh" if sym.startswith("6") else "sz"
-        try:
-            df = ak.stock_zh_a_daily(symbol=prefix + sym)
-            if df is not None and not df.empty and len(df) >= 2:
-                last, prev = df.iloc[-1], df.iloc[-2]
-                c = float(last["close"]); p = float(prev["close"])
-                result[sym] = {"price": c, "pct": round((c - p) / p * 100, 2),
-                               "open": float(last["open"]), "high": float(last["high"]),
-                               "low": float(last["low"]), "close": float(last["close"])}
-        except Exception as e:
-            print(f"[warn] {sym} 新浪行情失败: {e}")
+        prefix = "sh" if sym.startswith("6") else (
+            "bj" if sym.startswith(("4", "8", "920")) else "sz")
+        symbols.append(prefix + sym)
+    try:
+        r = requests.get("https://hq.sinajs.cn/list=" + ",".join(symbols),
+                         headers={"Referer": "https://finance.sina.com.cn"}, timeout=10)
+        r.raise_for_status()
+        for line in r.content.decode("gbk", errors="ignore").splitlines():
+            if "=" not in line or '"' not in line:
+                continue
+            code = line.split("=")[0].split("_")[-1]
+            fields = line.split('"')[1].split(",")
+            if len(fields) < 6:
+                continue
+            o, pc, c, h, l = fields[1], fields[2], fields[3], fields[4], fields[5]
+            try:
+                o, pc, c, h, l = float(o), float(pc), float(c), float(h), float(l)
+            except (TypeError, ValueError):
+                continue
+            if c <= 0 or pc <= 0:
+                continue
+            sym = code[2:]
+            result[sym] = {"price": c, "pct": round((c - pc) / pc * 100, 2),
+                           "open": o, "high": h, "low": l, "close": c}
+    except Exception as e:
+        print(f"[warn] 新浪实时行情失败: {e}")
     return result
 
 

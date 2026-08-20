@@ -269,6 +269,59 @@ def test_pending_merge(td: Path) -> int:
     return fails
 
 
+def test_latest_quote_sina() -> int:
+    """新浪实时行情降级（hq.sinajs.cn 批量）：真实 pct 口径 + 北交所前缀 + 失败降级。"""
+    fails = 0
+
+    def check(name, cond, note=""):
+        nonlocal fails
+        fails += 0 if cond else 1
+        print(f"[{'OK' if cond else 'FAIL'}] {name} {note}")
+
+    gbk_body = ("var hq_str_sh600519=\"贵州茅台,1500.00,1490.00,1540.00,1550.00,1480.00,"
+                "1539.99,1540.00,100000,1000000,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,"
+                "2026-08-20,09:05:30,00\";\n"
+                "var hq_str_sz000858=\"五粮液,120.00,118.00,121.00,122.00,119.00,"
+                "120.99,121.00,50000,500000,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,"
+                "2026-08-20,09:05:30,00\";\n"
+                "var hq_str_bj920001=\"某北交所股,10.00,10.00,12.90,13.00,10.00,"
+                "12.89,12.90,30000,300000,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,"
+                "2026-08-20,09:05:30,00\";\n")
+
+    class FakeResp:
+        def __init__(self, content, status=200):
+            self.content = content
+            self.status_code = status
+
+        def raise_for_status(self):
+            pass
+
+    pool = [{"symbol": "600519"}, {"symbol": "000858"}, {"symbol": "920001"}]
+    with mock.patch("sim_account.requests.get") as get:
+        get.return_value = FakeResp(gbk_body.encode("gbk"))
+        q = sim_account.latest_quote_sina(pool)
+    url = get.call_args[0][0]
+    check("批量一次请求全池", "list=sh600519,sz000858,bj920001" in url)
+    check("Referer 头", get.call_args[1]["headers"]["Referer"] == "https://finance.sina.com.cn")
+    check("沪 现价/pct 真实", q["600519"]["price"] == 1540.0 and q["600519"]["pct"] == round((1540 - 1490) / 1490 * 100, 2))
+    check("深 现价/pct 真实", q["000858"]["price"] == 121.0 and q["000858"]["pct"] == round((121 - 118) / 118 * 100, 2))
+    check("北交所 前缀bj+pct", q["920001"]["price"] == 12.9 and q["920001"]["pct"] == round((12.9 - 10) / 10 * 100, 2))
+    check("行情含开高低收", q["600519"]["open"] == 1500.0 and q["600519"]["high"] == 1550.0
+          and q["600519"]["low"] == 1480.0 and q["600519"]["close"] == 1540.0)
+
+    bad_body = 'var hq_str_sh600519="贵州茅台,,,,,,,,0,0,,,,,,";\n'
+    with mock.patch("sim_account.requests.get") as get:
+        get.return_value = FakeResp(bad_body.encode("gbk"))
+        q2 = sim_account.latest_quote_sina([{"symbol": "600519"}])
+    check("无现价字段跳过", "600519" not in q2)
+
+    with mock.patch("sim_account.requests.get") as get:
+        get.side_effect = ConnectionError("net down")
+        q3 = sim_account.latest_quote_sina(pool)
+    check("网络失败降级返回空", q3 == {})
+    return fails
+
+
 def main() -> int:
     fails = 0
     for q, expect, note in BOARD_CASES:
@@ -292,7 +345,8 @@ def main() -> int:
     with tempfile.TemporaryDirectory() as td:
         fails += test_pending_merge(Path(td))
     fails += test_sell_alert()
-    print(f"trading: {27 - fails}/27 passed")
+    fails += test_latest_quote_sina()
+    print(f"trading: {35 - fails}/35 passed")
     return 1 if fails else 0
 
 
