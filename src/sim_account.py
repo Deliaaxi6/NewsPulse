@@ -56,7 +56,7 @@ def peak_value_ever() -> float:
 
 
 def latest_quote(pool: list):
-    """行情降级链：东财快照 → 新浪日K → 腾讯分时（adata，仅价格）。东财直连优先。"""
+    """行情降级链：东财快照 → 新浪日K → 腾讯实时（qt.gtimg.cn，含北交所）。东财直连优先。"""
     try:
         import akshare as ak
         df = net_guard.try_chain("东财快照", [("em", lambda: ak.stock_zh_a_spot_em())])
@@ -73,19 +73,35 @@ def latest_quote(pool: list):
 
 
 def latest_quote_qq(pool: list):
-    """腾讯分时降级：最新成交价；无昨收无法计算涨跌幅，pct=None（宁缺毋假）。"""
-    import adata
+    """腾讯实时行情兜底（qt.gtimg.cn 批量，含北交所 bj 前缀，实测 920001 有数据）：
+    price=现价、pct=(现价-昨收)/昨收*100、open=今开；high/low 字段序号未标定，
+    宁缺毋假=None（与 adata 旧版一致）。"""
     result = {}
-    qq = adata.stock.market.qq_market
+    symbols = []
     for s in pool:
         sym = s["symbol"]
-        try:
-            df = qq.get_market_bar(stock_code=sym)
-            if df is not None and len(df):
-                result[sym] = {"price": float(df.iloc[-1]["price"]),
-                               "pct": None, "open": None, "high": None, "low": None}
-        except Exception as e:
-            print(f"[warn] {sym} 腾讯分时失败: {e}")
+        symbols.append(sina_prefix(sym) + sym)
+    try:
+        r = requests.get("https://qt.gtimg.cn/q=" + ",".join(symbols),
+                         headers={"Referer": "https://gu.qq.com"}, timeout=10)
+        r.raise_for_status()
+        for line in r.content.decode("gbk", errors="ignore").splitlines():
+            if '"' not in line or "~" not in line:
+                continue
+            code = line.split("=")[0].split("_")[-1]
+            f = line.split('"')[1].split("~")
+            if len(f) < 6:
+                continue
+            try:
+                price, prev_close, open_ = float(f[3]), float(f[4]), float(f[5])
+            except (TypeError, ValueError):
+                continue
+            if price <= 0 or prev_close <= 0:
+                continue
+            result[code] = {"price": price, "pct": round((price - prev_close) / prev_close * 100, 2),
+                            "open": open_, "high": None, "low": None, "close": price}
+    except Exception as e:
+        print(f"[warn] 腾讯实时行情失败: {e}")
     return result
 
 
