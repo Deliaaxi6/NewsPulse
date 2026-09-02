@@ -338,3 +338,10 @@
 - 实测（服务器）：fetch_kline 920001=300行、indicators=120行、cyq=180行、实时价 11.8（-0.08%）?；股票新闻 stock_news_em(920001)=10 行 ?
 - 仍留盲区：腾讯分时（adata qq）不支持北交所（实测 EMPTY）——东财+新浪同时失败时北交所当日跳过（fail-open）
 - 提交：47321bc / 85dc533；测试：test_strategies +8（含 sina_prefix 六类 + fetch_kline bj 闭包断言）；全量回归 ALL PASSED
+
+### 2026-09-02 — 盈亏日报独立推送 + 腾讯兜底北交所
+- 新增 src/pnl_report.py：读 portfolio 快照，口径=现金+Σ(shares>0 行市值)；累计盈亏 vs INIT_CASH/环比/持仓浮盈明细；无数据 fail-open 跳过推送
+- run_all 加第 7 步「盈亏」（daily_report 之后）；双通道 send_text + send_to_channel；test_pnl_report 7 用例 + test_run_all 步骤断言更新
+- 修复腾讯兜底：latest_quote_qq 改为 qt.gtimg.cn 批量（adata qq 对北交所 EMPTY 实测确认），含北交所 bj 前缀+pct
+- 服务器真实数据验证：盈亏日报输出 总资产 100,336 / 累计盈亏 +336(+0.34%) / 较 08-28 +166 / 持仓 4 只明细
+- 提交 ff9ec9e / d1f89b8（已 push + 部署）；全量回归 ALL PASSED（27 套件）
