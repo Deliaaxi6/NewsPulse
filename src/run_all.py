@@ -12,6 +12,7 @@ import daily_report
 import select_stock
 import fund_flow
 import alert
+import pnl_report
 
 _STEPS = (
     ("选股", select_stock),
@@ -20,6 +21,7 @@ _STEPS = (
     ("决策", decision),
     ("撮合", sim_account),
     ("报告", daily_report),
+    ("盈亏", pnl_report),
 )
 
 

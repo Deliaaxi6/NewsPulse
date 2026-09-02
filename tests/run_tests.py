@@ -28,6 +28,7 @@ import test_run_all
 import test_corporate
 import test_circuit_drill
 import test_llm_coverage
+import test_pnl_report
 
 
 def main() -> int:
@@ -56,6 +57,7 @@ def main() -> int:
         ("corporate", test_corporate.main),
         ("circuit_drill", test_circuit_drill.main),
         ("llm_coverage", test_llm_coverage.main),
+        ("pnl_report", test_pnl_report.main),
     ]
     total_fail = 0
     for name, fn in suites:

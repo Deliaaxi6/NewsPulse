@@ -17,7 +17,7 @@ def main() -> int:
         print(f"[{'OK' if cond else 'FAIL'}] {name} {note}")
 
     steps = ("select_stock", "fetch_news", "filter_news", "decision",
-             "sim_account", "daily_report")
+             "sim_account", "daily_report", "pnl_report")
 
     def run(is_trading, expect_calls):
         calls = []
