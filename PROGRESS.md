@@ -353,3 +353,10 @@
 - 服务器隔离验证：行情全空 → 写 2600股@28262 市值 总资产 28518.6 不崩；真实数据 positions_rows 全行=100,335.6
 - tests: trading 37/37（新增盘前降级/组合总资产）；全量回归 ALL PASSED
 - 提交 a0729e8（已 push + 部署）
+
+### 2026-09-02 — load_portfolio 按 date_str 截取快照
+- 修复 load_portfolio 用墙钟 today 判定导致复现/回测按历史日期跑时误判"今日"→ 返回空仓+10万重置、持仓全丢
+- 改为 load_portfolio(asof=date_str)：读取 date<=asof 最后快照为账户起点；asof=None 回落墙钟（兼容旧调用）；main 传 date_str
+- backtest 不读 portfolio.csv 无耦合；全量回归 ALL PASSED（trading 38/38 新增 asof 用例）
+- 服务器真实数据验证：asof=09-02 读到 4 实际持仓/现金256.6；asof=08-20 读到当日快照/现金80065.55
+- 提交 b4cb8bc（已 push + 部署）
