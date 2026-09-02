@@ -348,6 +348,33 @@ def test_positions_rows() -> int:
     return fails
 
 
+def test_load_portfolio_asof() -> int:
+    """load_portfolio(asof=...) 按 asof 截取最后快照，不依赖墙钟 today：
+    补跑/多日回测（asof < 墙钟 today）仍读到正确持仓，不误返回空仓。"""
+    fails = 0
+    with tempfile.TemporaryDirectory() as td:
+        td = Path(td)
+        with mock.patch.object(sim_account, "DATA_DIR", td):
+            import pandas as pd
+            pd.DataFrame([
+                {"date": "2026-08-28", "stock": "600508", "shares": 2600,
+                 "cost": 10.87, "leverage": 1, "cash": 256.6, "market_value": 28262.0},
+                {"date": "2026-08-28", "stock": "000070", "shares": 1400,
+                 "cost": 16.07, "leverage": 1, "cash": 256.6, "market_value": 21924.0},
+            ]).to_csv(td / "portfolio.csv", index=False, encoding="utf-8-sig")
+            s = sim_account.load_portfolio(asof="2026-08-28")
+            ok = s["positions"].get("600508", {}).get("shares") == 2600 and \
+                 s["positions"].get("000070", {}).get("shares") == 1400
+            fails += 0 if ok else 1
+            print(f"[{'OK' if ok else 'FAIL'}] asof 截取持仓 -> {sorted(s['positions'].keys())}")
+
+            s2 = sim_account.load_portfolio(asof="2026-08-27")
+            ok2 = s2 == {"cash": 100000.0, "positions": {}}
+            fails += 0 if ok2 else 1
+            print(f"[{'OK' if ok2 else 'FAIL'}] asof 早于全部数据 -> 空仓 10万 -> {s2}")
+    return fails
+
+
 def main() -> int:
     fails = 0
     for q, expect, note in BOARD_CASES:
@@ -373,7 +400,8 @@ def main() -> int:
     fails += test_sell_alert()
     fails += test_latest_quote_sina()
     fails += test_positions_rows()
-    print(f"trading: {37 - fails}/37 passed")
+    fails += test_load_portfolio_asof()
+    print(f"trading: {38 - fails}/38 passed")
     return 1 if fails else 0
 
 

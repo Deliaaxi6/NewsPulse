@@ -144,15 +144,22 @@ def latest_quote_sina(pool: list):
     return result
 
 
-def load_portfolio():
+def load_portfolio(asof=None):
+    """读取截至 asof（含）最后一天快照作为账户起点。
+    asof 取 date_str 而非墙钟：支持补跑历史/多日回测（按旧日期运行不会把
+    portfolio 当"今日"而误返回空仓、重置账户）。
+    asof=None 时回落墙钟 today（兼容旧调用）。"""
+    asof = asof or dt.date.today().isoformat()
     p = DATA_DIR / "portfolio.csv"
     if p.exists():
         pf = pd.read_csv(p, encoding="utf-8-sig", dtype={"stock": str}).to_dict("records")
         if pf:
-            last = pf[-1]
-            if last["date"] != dt.date.today().isoformat():
-                return {"cash": float(last["cash"]), "positions": {r["stock"]: {"shares": float(r["shares"]), "cost": float(r["cost"]), "leverage": float(r.get("leverage", 1))}
-                        for r in pf if r["date"] == last["date"]}}
+            ok = [r for r in pf if str(r["date"]) <= asof]
+            if ok:
+                last = ok[-1]
+                return {"cash": float(last["cash"]),
+                        "positions": {r["stock"]: {"shares": float(r["shares"]), "cost": float(r["cost"]), "leverage": float(r.get("leverage", 1))}
+                                      for r in ok if r["date"] == last["date"]}}
     return {"cash": INIT_CASH, "positions": {}}
 
 
@@ -534,7 +541,7 @@ def main(date_str=None):
         return
     decisions = pd.read_csv(qfile, encoding="utf-8-sig", dtype={"stock": str}).to_dict("records")
     decisions, due_orders = _merge_pending_orders(decisions, date_str)
-    state = load_portfolio()
+    state = load_portfolio(asof=date_str)
     pool = select_stock.load_pool(date_str)
     held = [{"symbol": sym} for sym, p in state["positions"].items()
             if p["shares"] > 0 and sym not in {s["symbol"] for s in pool}]
