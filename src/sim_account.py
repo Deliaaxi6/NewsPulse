@@ -96,8 +96,10 @@ def latest_quote_qq(pool: list):
                 price, prev_close, open_ = float(f[3]), float(f[4]), float(f[5])
             except (TypeError, ValueError):
                 continue
-            if price <= 0 or prev_close <= 0:
+            if prev_close <= 0:
                 continue
+            if price <= 0:
+                price = prev_close  # 盘前无成交价，用昨收作价（pct=0）
             result[code] = {"price": price, "pct": round((price - prev_close) / prev_close * 100, 2),
                             "open": open_, "high": None, "low": None, "close": price}
     except Exception as e:
@@ -130,8 +132,10 @@ def latest_quote_sina(pool: list):
                 o, pc, c, h, l = float(o), float(pc), float(c), float(h), float(l)
             except (TypeError, ValueError):
                 continue
-            if c <= 0 or pc <= 0:
+            if pc <= 0:
                 continue
+            if c <= 0:
+                c = pc  # 盘前无成交价，用昨收作价（pct=0），避免行情断档
             sym = code[2:]
             result[sym] = {"price": c, "pct": round((c - pc) / pc * 100, 2),
                            "open": o, "high": h, "low": l, "close": c}
@@ -163,8 +167,13 @@ def positions_rows(state, today, quotes, pool):
         mv = shares * price
         rows.append({"date": today, "stock": sym, "shares": shares,
                      "cost": pos["cost"] if pos else 0.0, "market_value": round(mv, 2),
-                     "cash": round(state["cash"], 2), "leverage": pos["leverage"] if pos else 1.0,
-                     "total_value": round(state["cash"] + mv, 2)})
+                     "cash": round(state["cash"], 2),
+                     "leverage": pos["leverage"] if pos else 1.0,
+                     "total_value": None})
+    total_value = round(state["cash"] + sum(
+        r["market_value"] for r in rows if r["shares"] > 0), 2)
+    for r in rows:
+        r["total_value"] = total_value
     return rows
 
 
@@ -532,7 +541,13 @@ def main(date_str=None):
     pool = pool + held  # 持仓股票永远纳入报价/估值，避免退池后无法卖出
     quotes = latest_quote(pool)
     if not quotes:
-        return
+        print("[warn] 行情全部不可用：今日不成交，仅按持仓成本价估值写行（防盈亏断档）")
+        quotes = {sym: {"price": pos["cost"], "pct": 0.0,
+                        "open": pos["cost"], "high": pos["cost"],
+                        "low": pos["cost"], "close": pos["cost"]}
+                  for sym, pos in state["positions"].items() if pos["shares"] > 0}
+        decisions = [dict(d, signal="hold", reason="行情不可用，今日不成交")
+                     for d in decisions]
     apply_corporate_actions(date_str, state)
     validate_predictions(date_str, quotes)
     logs = []

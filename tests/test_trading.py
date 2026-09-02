@@ -315,10 +315,36 @@ def test_latest_quote_sina() -> int:
         q2 = sim_account.latest_quote_sina([{"symbol": "600519"}])
     check("无现价字段跳过", "600519" not in q2)
 
+    pre_body = 'var hq_str_sh600519="贵州茅台,1500.00,1490.00,0.00,0.00,0.00,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2026-09-03,09:00:00,00";\n'
+    with mock.patch("sim_account.requests.get") as get:
+        get.return_value = FakeResp(pre_body.encode("gbk"))
+        q4 = sim_account.latest_quote_sina([{"symbol": "600519"}])
+    check("盘前c=0昨收作价", q4["600519"]["price"] == 1490.0 and q4["600519"]["pct"] == 0.0)
+
     with mock.patch("sim_account.requests.get") as get:
         get.side_effect = ConnectionError("net down")
         q3 = sim_account.latest_quote_sina(pool)
     check("网络失败降级返回空", q3 == {})
+    return fails
+
+
+def test_positions_rows() -> int:
+    """多仓组合：每行 total_value 必须是组合总资产（现金+Σ持仓市值），非单股市值。"""
+    fails = 0
+    state = {"cash": 256.6,
+             "positions": {"600508": {"shares": 2600, "cost": 10.87, "leverage": 1},
+                           "000779": {"shares": 2900, "cost": 10.01, "leverage": 1},
+                           "000070": {"shares": 1400, "cost": 16.07, "leverage": 1},
+                           "603186": {"shares": 100, "cost": 167.55, "leverage": 1}}}
+    pool = [{"symbol": "600508"}, {"symbol": "000779"},
+            {"symbol": "000070"}, {"symbol": "603186"}]
+    quotes = {"600508": {"price": 12.17}, "000779": {"price": 10.14},
+              "000070": {"price": 15.66}, "603186": {"price": 171.07}}
+    rows = sim_account.positions_rows(state, "2026-09-02", quotes, pool)
+    expect_total = 256.6 + 2600 * 12.17 + 2900 * 10.14 + 1400 * 15.66 + 100 * 171.07
+    ok = all(abs(r["total_value"] - round(expect_total, 2)) < 1e-6 for r in rows)
+    fails += 0 if ok else 1
+    print(f"[{'OK' if ok else 'FAIL'}] 多仓 total_value=组合总资产 {round(expect_total, 2)} -> {round(rows[-1]['total_value'], 2)}")
     return fails
 
 
@@ -346,7 +372,8 @@ def main() -> int:
         fails += test_pending_merge(Path(td))
     fails += test_sell_alert()
     fails += test_latest_quote_sina()
-    print(f"trading: {35 - fails}/35 passed")
+    fails += test_positions_rows()
+    print(f"trading: {37 - fails}/37 passed")
     return 1 if fails else 0
 
 
